@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Working name** | Agentic Browser (CLI: `agb`, skill: `agentic-browser`) |
-| **Status** | Draft v0.2 (adds the human-like interaction engine, perception modes, and teach mode) |
+| **Status** | Draft v0.3 (adds the vertical tab layout; v0.2 added the human-like interaction engine, perception modes, and teach mode) |
 | **Date** | 2026-11-22 |
 | **Target platforms** | Windows 10/11 x64 (first), macOS (Apple Silicon + Intel), Linux (later) |
 | **Reference product** | ego lite by citrolabs, a Chromium browser that humans and AI agents share, driven through an installed agent skill |
@@ -129,6 +129,7 @@ The human-like engine is for **fidelity, realistic testing, and transparency. It
 | US15 | P2 | to show the agent a task once and have it repeat it every week with new data | I don't have to write instructions |
 | US16 | P3 | to choose fast or natural pacing per task, and replay a run exactly | I get speed when I need it, realism when it matters, and reproducible failures |
 | US17 | P1 | the agent to work a page with the keyboard only | it can test accessibility |
+| US18 | P2 | to switch the tabs to a vertical list down the side, grouped by Space | I can read long tab titles and see every agent's open tabs at a glance |
 
 ---
 
@@ -136,7 +137,9 @@ The human-like engine is for **fidelity, realistic testing, and transparency. It
 
 | Term | Meaning |
 |---|---|
-| **Shell** | The browser application window and its UI (tab strip, address bar, sidebar). |
+| **Shell** | The browser application window and its UI (tab strip or tab panel, address bar, sidebar). |
+| **Tab layout** | Where the shell shows tabs: `horizontal` (a tab strip across the top, the default) or `vertical` (the tab panel down the left side) (§6.3). |
+| **Tab panel** | The left-hand panel in the vertical tab layout. It lists tabs grouped by Space and replaces both the tab strip and the Space switcher (§6.3). |
 | **Space** | A named group of tabs owned by one actor (the human or one agent session). Each Space has a storage mode (§7). |
 | **Agent** | An external program (for example Claude Code) that calls `agb`. Identified by an agent ID. |
 | **Agent session** | One run of an agent task. It owns one or more Spaces. |
@@ -232,6 +235,7 @@ The human-like engine is for **fidelity, realistic testing, and transparency. It
 ### 6.1 Standard browser features (v1)
 
 - Tabs: open, close, reorder, pin, mute, restore closed tab, tab search.
+- Tab layout: horizontal (tab strip across the top) or vertical (tab panel down the left side), switchable at any time without reloading pages (§6.3).
 - Address bar with search, autocomplete from history and bookmarks, and a default search engine setting.
 - Back, forward, reload, stop, zoom, find in page, print, view source, DevTools.
 - Bookmarks (bar and manager), history, downloads manager.
@@ -247,8 +251,8 @@ The human-like engine is for **fidelity, realistic testing, and transparency. It
 
 | Element | Description |
 |---|---|
-| **Space switcher** | Left rail with the human Space first and then one entry per active agent Space. Each shows the agent icon and name and a status dot (idle / working / waiting for you / paused / error). |
-| **Agent tab marking** | Agent tabs have a colored top border in the agent's color and a small robot badge on the tab. |
+| **Space switcher** | Left rail with the human Space first and then one entry per active agent Space. Each shows the agent icon and name and a status dot (idle / working / waiting for you / paused / error). In the vertical tab layout the switcher merges into the tab panel (§6.3). |
+| **Agent tab marking** | Agent tabs have a border in the agent's color (on the top edge in the horizontal layout, on the left edge in the vertical layout) and a small robot badge on the tab. |
 | **Activity panel** | Right sidebar with a live feed of the selected agent's actions ("Clicked 'Submit' on jira.example.com"). Each entry has a thumbnail. |
 | **Controls** | Per Space: **Pause**, **Resume**, **Take over**, **Stop**, **Close Space**. A global **Stop all agents** button and shortcut (`Ctrl+Shift+.`). |
 | **Approval card** | A non-modal card in the Activity panel plus an OS notification: "Claude Code wants to click 'Place order' on shop.example.com. [Allow once] [Always allow on this site] [Deny]". |
@@ -257,6 +261,66 @@ The human-like engine is for **fidelity, realistic testing, and transparency. It
 | **Pace control** | A per-Space selector in the Space switcher: Instant / Fast / Natural / Demo / My pace. The human can slow an agent down at any time to watch it. |
 | **Teach button** | In the toolbar: "Teach an agent". Starts recording a demonstration in the current tab (§12.5). A red recording badge and step counter stay visible while recording. |
 | **Agent settings** | Settings › Agents: connected agents, skill install status per agent tool, policies, storage modes, audit log, gateway status. |
+
+### 6.3 Tab layout: horizontal and vertical
+
+The human chooses where tabs appear. **Horizontal** (the default) is the familiar tab strip across the top, with the Space switcher as a separate left rail (§6.2). **Vertical** replaces both with one **tab panel** down the left side that lists every tab grouped by Space.
+
+#### 6.3.1 Switching
+
+- Settings › Appearance › **Tab layout**: Horizontal / Vertical.
+- Right-click on the tab strip or tab panel › **Switch to vertical tabs** / **Switch to horizontal tabs**.
+- View menu › **Vertical tabs** (a checkbox item), shortcut `Ctrl+Shift+L` (`Cmd+Shift+L` on macOS). `Ctrl+Shift+,` (used by some browsers for this) is deliberately not used, because it sits next to **Stop all agents** (`Ctrl+Shift+.`).
+- The setting is global and applies to every shell window at once. The change takes effect immediately: pages are **not** reloaded, and scroll position, form input, media playback, and DevTools state are kept. Only the views' bounds change.
+
+#### 6.3.2 Tab panel layout
+
+```
+┌────────────────────┬──────────────────────────────────────────┐
+│ [+ New tab]  [🔍]  │  ◀ ▶ ⟳  https://example.com          ☰  │
+├────────────────────┼──────────────────────────────────────────┤
+│ 📌 📌 📌           │                                          │
+│ ▾ You              │                                          │
+│   ▌Inbox – Mail  ✕ │                                          │
+│    Docs: Q4 plan   │              page content                │
+│    PR #42 review   │                                          │
+│ ▾ 🤖 Claude Code ● │                                          │
+│   ▌Jira PROJ-142   │                                          │
+│   ▌Staging login   │                                          │
+│ ▸ 🤖 Codex ⏸ (3)   │                                          │
+├────────────────────┤                                          │
+│ [⇤ Collapse]       │                                          │
+└────────────────────┴──────────────────────────────────────────┘
+```
+
+- **Header**: New tab button and tab search (the same search as in §6.1).
+- **Pinned tabs**: the human's pinned tabs as a grid of favicons at the top.
+- **Space sections**: the human Space ("You") first, then one section per active agent Space in creation order. Each agent section header shows the agent icon, name, status dot, and tab count, plus the same controls as the Space switcher (pace, Pause/Resume, Take over, Stop, Close Space) on hover or right-click. Sections can be collapsed; the human section is expanded by default and agent sections start collapsed when there are more than three.
+- **Tab rows**: favicon (or loading spinner), title on one line with ellipsis, a speaker icon when audio plays, and a close button on hover. The active tab is highlighted. Agent tab rows carry the agent-color left border and robot badge (§6.2) and also show the agent's last action as a tooltip.
+- **Width**: resizable by dragging the panel's right edge, from 180 to 480 px (default 260 px).
+- **Collapsed mode**: **Collapse** shrinks the panel to a 48 px rail of favicons and Space icons. Hovering the rail for 300 ms expands it as an overlay **on top of** the page, so the page does not resize; moving the pointer away collapses it again.
+- **Window controls**: on Windows and Linux the toolbar row (address bar) sits to the right of the panel and the window's caption buttons stay in the top-right corner (title bar overlay). On macOS the traffic lights sit at the top of the panel header.
+
+#### 6.3.3 Behavior
+
+- Everything that works on horizontal tabs works here: drag to reorder within a section, drag out to a new window, pin, mute, duplicate, restore closed tab, middle-click to close, and the same context menu.
+- **Agent tabs are listed, not moved.** Agent tabs still live in their Space's own window (§7.3). Clicking an agent tab row shows that Space's window with the tab in view. It does not pause the agent or redirect its commands (agents address tabs by ID); to act on the tab, the human uses **Take over** (§14.3).
+- **No dragging across Spaces.** A tab cannot be dragged from an agent section into the human section or between agent sections, because Spaces have different storage modes (§7.2). Dropping one of the human's tabs onto an agent section header opens the **Share with agent…** dialog (§7.4). It never shares without that dialog.
+- **Keyboard**: `Ctrl+Tab` / `Ctrl+Shift+Tab` and `Ctrl+1`–`Ctrl+9` cycle through the human's tabs only, as in the horizontal layout. `F6` moves focus between the page, the toolbar, and the tab panel. Inside the panel, Up/Down move between rows, Left/Right collapse and expand sections, Enter activates, and Delete closes the focused tab.
+- **Accessibility**: the human's tabs form a `tablist` with `aria-orientation="vertical"`. Each agent section is a labeled `group` ("Claude Code, working, 2 tabs"), and its rows are links that open the Space window, not tabs of the human's window.
+
+#### 6.3.4 Agent Space windows
+
+- When the human shows an agent Space's window (§7.3), it uses the same tab layout. Its tab panel lists only that Space's tabs, under a header with the Space's controls.
+- **The agent's viewport never changes because of the human's layout.** Showing, hiding, resizing, or collapsing the tab panel widens or narrows the **window**, not the page view, so an agent page keeps the viewport size its Space was created with. Refs (§10.3), `look` coordinates (§10.7), and human perception snapshots (§10.8) therefore stay valid while the human switches layouts. In the human's own windows the page view does resize, as in any browser.
+
+#### 6.3.5 Implementation notes
+
+- The shell UI is one `WebContentsView` (React) and each page is its own `WebContentsView`. One function, `computeLayout(windowSize, layoutSettings) → { shell, page, overlay }`, returns the bounds of every view for both layouts and is the only code that calls `setBounds`. In the vertical layout the shell view covers the panel on the left and the toolbar across the top, and the page view sits at `x = panelWidth, y = toolbarHeight`.
+- The expanded-on-hover panel is drawn by raising the shell view above the page view and widening it for the duration of the hover, so the page view's bounds don't change.
+- Layout switches and panel resizes must not flicker: bounds are applied in one frame, and panel drags are throttled to the display refresh rate.
+- The tab layout is shell-only state. It is not exposed through the Gateway and has no effect on agent commands, snapshots, or captures.
+- Settings keys (§16): `ui.tab_layout` (`horizontal` | `vertical`), `ui.tab_panel.width`, `ui.tab_panel.collapsed`, and `ui.tab_panel.collapsed_sections` (JSON array of Space IDs, plus `"human"`).
 
 ---
 
@@ -288,6 +352,7 @@ Notes:
 - Rendering continues while hidden (`backgroundThrottling: false`, `paintWhenInitiallyHidden: true`), so screenshots and layout stay correct.
 - Agent windows **never take OS focus**: `focusable: false` while hidden, `showInactive()` when shown, and no `focus()` calls in agent code paths.
 - All input goes through CDP to the target `webContents`. The OS cursor and keyboard focus don't change.
+- The page viewport of an agent tab is fixed by its Space's settings. Showing the window or changing the human's tab layout resizes the window around it, never the viewport (§6.3.4).
 
 ### 7.4 Sharing a human tab with an agent
 
@@ -1130,7 +1195,7 @@ CREATE TABLE pace_profiles (      -- built-in profiles plus the user's calibrate
 );
 
 CREATE TABLE policies (agent_id TEXT PRIMARY KEY, json TEXT, updated_at INTEGER);
-CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);  -- includes ui.tab_layout and ui.tab_panel.* (§6.3.5)
 ```
 
 Retention: audit log 30 days by default (configurable 1–365); screenshots in the audit log 7 days; everything can be exported (JSON) and cleared from Settings.
@@ -1256,6 +1321,7 @@ The **protocol package is the single source of truth**: method schemas are writt
 | Unit | Snapshot serializer, ref assignment and stability, filters, policy classifiers, CLI argument parsing and output formatting | Vitest, Go tests, golden files |
 | Integration | Gateway methods against fixture pages (forms, shadow DOM, iframes, SPAs, modals, infinite scroll, dialogs, downloads, uploads) | Electron in CI, headless-hidden windows |
 | Isolation | Agent actions never change human focus, active tab, or cursor; storage modes isolate correctly | Dedicated e2e suite; OS focus checks on Windows and macOS |
+| Shell layout | Switching tab layout keeps every page loaded (no reload, same scroll position and form input); view bounds are correct at many window sizes and DPI scales; agent page viewports never change when the panel is shown, resized, or collapsed; keyboard navigation and screen-reader labels in the tab panel | e2e suite comparing bounds and `webContents` load counts before and after each switch; screen-reader spot checks (NVDA, VoiceOver) |
 | **Human fidelity** | Agent input produces the same event sequences as a person's. Baselines: real people perform each fixture task while an event logger records `pointer*` / `mouse*` / `key*` / `input` / `composition*` / `wheel` / `focus*` / `drag*` events. Agent streams are compared by order, types, targets, and counts (timing compared per profile). | Fixture apps: hover-intent menus, tooltips, drag libraries (SortableJS, dnd-kit, react-beautiful-dnd, native DnD), input masks, debounced autocomplete, date pickers, rich-text editors (ProseMirror, Quill, contenteditable), canvas apps, virtualized and infinite lists, scroll containers inside modals. Pass in every pace profile. |
 | Motion and timing | Paths, durations, and event rates match the motion model (§11.7) and pace profiles (§11.10) | Statistical checks over 1,000 generated moves per profile |
 | Reproducibility | Same seed + same page = identical input event stream | Run twice, diff the streams |
@@ -1279,7 +1345,7 @@ The **protocol package is the single source of truth**: method schemas are writt
 | **M3 Skill and agents** (2 wks) | `SKILL.md`, `agb skill` guide, `skill install` for Claude Code, Codex, Cursor, Gemini; `agb doctor` | Claude Code completes tasks from a fresh install with no extra instructions |
 | **M4 Human-like interaction** (4 wks) | Agent pointer, motion model, keyboard model with layouts and IME, wheel scrolling, pace profiles, pointer overlay, seeded reproducibility, `fill-form`, `select-text`, virtual clipboard, keyboard-only mode, mobile touch emulation | Fidelity suite ≥ 98% structural match; hover, drag, autocomplete, rich-text, and canvas fixtures pass in all profiles |
 | **M5 Human perception** (2 wks) | Human perception mode, visual cues (`--styles`), `look` with marks, coordinate actions | Perception fixtures pass; a vision-capable agent completes the canvas fixture tasks with `look` |
-| **M6 Coexistence** (3 wks) | Space switcher, agent tab marking, Activity panel, pace control, pause/takeover/stop, handoff | Usability test: 5 of 5 users can find and stop an agent in under 10 s |
+| **M6 Coexistence** (4 wks) | Space switcher, agent tab marking, Activity panel, pace control, pause/takeover/stop, handoff, vertical tab layout with the tab panel (§6.3) | Usability test: 5 of 5 users can find and stop an agent in under 10 s, in both tab layouts; shell layout tests pass |
 | **M7 Security** (3 wks) | Policy engine, sensitive action classes, approvals UI, cloned and shared modes with per-site consent, rate limits, audit log | All security tests pass |
 | **M8 Teach mode** (3 wks) | Recorder, semantic steps, review screen with parameters, routines, self-healing, `mine` pace calibration | A demonstrated task replays on 3 later runs with new data |
 | **M9 Efficiency** (2 wks) | Script runner, `find`, `outline` mode, token tuning, benchmarks | §18 targets met |
