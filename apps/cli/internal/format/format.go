@@ -9,8 +9,11 @@ import (
 	"strings"
 )
 
-// Field is one key=value pair in a header line.
-type Field struct{ Key, Value string }
+// Field is one key=value pair in a header line. Raw values are printed as they are, never quoted.
+type Field struct {
+	Key, Value string
+	Raw        bool
+}
 
 // Header renders "[agb] k=v k=v". Values with spaces are quoted.
 func Header(fields ...Field) string {
@@ -21,7 +24,7 @@ func Header(fields ...Field) string {
 			continue
 		}
 		v := f.Value
-		if strings.ContainsAny(v, " \t\"") {
+		if !f.Raw && strings.ContainsAny(v, " \t\"") {
 			v = fmt.Sprintf("%q", v)
 		}
 		fmt.Fprintf(&b, " %s=%s", f.Key, v)

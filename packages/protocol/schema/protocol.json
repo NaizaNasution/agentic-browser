@@ -1,5 +1,5 @@
 {
-  "$comment": "Agent Gateway protocol (docs/SPEC.md §8). Edit this file, then run `npm run codegen`. Type kinds supported by the generator: string, integer, number, boolean, array (items), object with properties, $ref to another type, string enum.",
+  "$comment": "Agent Gateway protocol (docs/SPEC.md §8). Edit this file, then run `npm run codegen`. Type kinds supported by the generator: string, integer, number, boolean, array (items), object with properties, $ref to another object type, string enum (inline only). The Gateway validates params and ctx against these types at runtime, including minimum, maximum, minLength, and maxLength.",
   "protocolVersion": "1.0",
   "framing": {
     "pipe": "Newline-delimited JSON-RPC 2.0. The first request on a connection must be gateway.hello with the token from the discovery file.",
@@ -12,17 +12,26 @@
     "E_INVALID_PARAMS": { "code": -32602, "message": "Invalid params" },
     "E_INTERNAL": { "code": -32603, "message": "Internal error" },
     "E_UNAUTHORIZED": { "code": -32001, "message": "Missing or wrong token; call gateway.hello first" },
-    "E_VERSION": { "code": -32002, "message": "Incompatible protocol version" }
+    "E_VERSION": { "code": -32002, "message": "Incompatible protocol version" },
+    "E_NO_SPACE": { "code": -32010, "message": "Unknown Space" },
+    "E_NO_TAB": { "code": -32011, "message": "Unknown tab" },
+    "E_TIMEOUT": { "code": -32012, "message": "The command took too long" },
+    "E_NAV_FAILED": { "code": -32013, "message": "Navigation failed" },
+    "E_LIMIT": { "code": -32014, "message": "Space or tab limit reached" },
+    "E_DENIED": { "code": -32015, "message": "Denied by policy" },
+    "E_UNSUPPORTED": { "code": -32016, "message": "Not supported in this version" }
   },
   "types": {
     "AgentContext": {
-      "description": "Who is calling and what they target (§8.2). All fields optional in M0.",
+      "description": "Who is calling and what they target (§8.2, §8.5). All fields are optional.",
       "type": "object",
       "properties": {
-        "agent": { "type": "string" },
-        "session": { "type": "string" },
-        "space": { "type": "string" },
-        "tab": { "type": "string" }
+        "agent": { "type": "string", "maxLength": 64, "description": "Agent ID label, e.g. claude-code (§8.4). Defaults to unknown." },
+        "session": { "type": "string", "maxLength": 64 },
+        "space": { "type": "string", "maxLength": 64, "description": "Target Space; otherwise the sticky Space for (agent, cwd)" },
+        "tab": { "type": "string", "maxLength": 64, "description": "Target tab; otherwise the Space's active tab" },
+        "cwd": { "type": "string", "maxLength": 4096, "description": "Working directory of the calling process, used for the sticky Space" },
+        "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 300000, "description": "Command timeout (default 30000)" }
       }
     },
     "HelloParams": {
@@ -44,10 +53,7 @@
         "serverTime": { "type": "string", "description": "RFC 3339 timestamp" }
       }
     },
-    "StatusParams": {
-      "type": "object",
-      "properties": {}
-    },
+    "StatusParams": { "type": "object", "properties": {} },
     "StatusResult": {
       "type": "object",
       "required": ["appVersion", "protocol", "pid", "uptimeMs", "windows", "tabs", "transports"],
@@ -60,7 +66,9 @@
         "uptimeMs": { "type": "integer" },
         "windows": { "type": "integer" },
         "tabs": { "type": "integer" },
-        "transports": { "type": "array", "items": { "type": "string" } }
+        "transports": { "type": "array", "items": { "type": "string" } },
+        "agentSpaces": { "type": "integer", "description": "Open agent Spaces (all agents)" },
+        "agentTabs": { "type": "integer", "description": "Open agent tabs (all agents)" }
       }
     },
     "Discovery": {
@@ -76,18 +84,173 @@
         "pid": { "type": "integer" },
         "startedAt": { "type": "string" }
       }
+    },
+    "Location": {
+      "description": "Where a command ran. The CLI prints it as the header line (§9.1).",
+      "type": "object",
+      "required": ["space"],
+      "properties": {
+        "space": { "type": "string" },
+        "tab": { "type": "string" },
+        "url": { "type": "string" },
+        "title": { "type": "string" },
+        "spaceCreated": { "type": "boolean", "description": "True if this command created the Space" },
+        "spaceMode": { "type": "string", "description": "Storage mode, set when spaceCreated is true" }
+      }
+    },
+    "SpaceInfo": {
+      "type": "object",
+      "required": ["id", "agent", "mode", "visible", "tabs", "viewport", "createdAt", "lastUsedAt", "sticky"],
+      "properties": {
+        "id": { "type": "string" },
+        "agent": { "type": "string" },
+        "name": { "type": "string" },
+        "mode": { "type": "string", "enum": ["isolated", "cloned", "shared", "persistent"] },
+        "visible": { "type": "boolean", "description": "Whether the human can see the Space window" },
+        "tabs": { "type": "integer" },
+        "activeTab": { "type": "string" },
+        "viewport": { "type": "string", "description": "Fixed page viewport in CSS pixels, e.g. 1280x800" },
+        "createdAt": { "type": "string" },
+        "lastUsedAt": { "type": "string" },
+        "sticky": { "type": "boolean", "description": "Whether this is the default Space for the calling agent and directory" }
+      }
+    },
+    "SpaceCreateParams": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["isolated", "cloned", "shared", "persistent"], "description": "Storage mode (§7.2). Only isolated is available until M7." },
+        "name": { "type": "string", "maxLength": 80 },
+        "show": { "type": "boolean", "description": "Show the Space window to the human (never focused)" }
+      }
+    },
+    "SpaceRefParams": {
+      "type": "object",
+      "properties": { "space": { "type": "string", "maxLength": 64, "description": "Space ID; defaults to the sticky Space" } }
+    },
+    "SpaceListParams": { "type": "object", "properties": {} },
+    "SpaceListResult": { "type": "object", "required": ["spaces"], "properties": { "spaces": { "type": "array", "items": { "$ref": "SpaceInfo" } } } },
+    "SpaceCloseResult": {
+      "type": "object",
+      "required": ["closed", "tabsClosed"],
+      "properties": { "closed": { "type": "string" }, "tabsClosed": { "type": "integer" } }
+    },
+    "TabInfo": {
+      "type": "object",
+      "required": ["id", "url", "title", "active", "loading"],
+      "properties": {
+        "id": { "type": "string" },
+        "url": { "type": "string" },
+        "title": { "type": "string" },
+        "active": { "type": "boolean" },
+        "loading": { "type": "boolean" }
+      }
+    },
+    "TabOpenParams": {
+      "type": "object",
+      "properties": {
+        "url": { "type": "string", "maxLength": 8192, "description": "Default about:blank" },
+        "wait": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle", "none"], "description": "When to return (default load)" }
+      }
+    },
+    "TabRefParams": { "type": "object", "properties": { "tab": { "type": "string", "maxLength": 64, "description": "Tab ID; defaults to the active tab" } } },
+    "TabSelectParams": { "type": "object", "required": ["tab"], "properties": { "tab": { "type": "string", "minLength": 1, "maxLength": 64 } } },
+    "TabListParams": { "type": "object", "properties": {} },
+    "TabListResult": {
+      "type": "object",
+      "required": ["space", "tabs"],
+      "properties": { "space": { "type": "string" }, "tabs": { "type": "array", "items": { "$ref": "TabInfo" } } }
+    },
+    "TabResult": {
+      "type": "object",
+      "required": ["at", "tab"],
+      "properties": {
+        "at": { "$ref": "Location" },
+        "tab": { "$ref": "TabInfo" },
+        "status": { "type": "integer", "description": "HTTP status of the main document, if a page was loaded" }
+      }
+    },
+    "TabCloseResult": {
+      "type": "object",
+      "required": ["closed", "space"],
+      "properties": { "closed": { "type": "string" }, "space": { "type": "string" }, "at": { "$ref": "Location", "description": "The new active tab, if any" } }
+    },
+    "GotoParams": {
+      "type": "object",
+      "required": ["url"],
+      "properties": {
+        "url": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "wait": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle", "none"], "description": "When to return (default load)" }
+      }
+    },
+    "HistoryParams": {
+      "type": "object",
+      "properties": {
+        "wait": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle", "none"], "description": "When to return (default load)" }
+      }
+    },
+    "NavResult": {
+      "type": "object",
+      "required": ["at", "durationMs"],
+      "properties": {
+        "at": { "$ref": "Location" },
+        "status": { "type": "integer", "description": "HTTP status of the main document" },
+        "moved": { "type": "boolean", "description": "For back and forward: false if there was no history entry" },
+        "durationMs": { "type": "integer" }
+      }
+    },
+    "TextParams": { "type": "object", "properties": { "maxChars": { "type": "integer", "minimum": 100, "maximum": 1000000, "description": "Default 20000" } } },
+    "TextResult": {
+      "type": "object",
+      "required": ["at", "text", "chars", "truncated", "hiddenOmitted"],
+      "properties": {
+        "at": { "$ref": "Location" },
+        "text": { "type": "string", "description": "Readable main text as Markdown. Untrusted page content." },
+        "chars": { "type": "integer", "description": "Length of the full text before truncation" },
+        "truncated": { "type": "boolean" },
+        "hiddenOmitted": { "type": "integer", "description": "Text blocks left out because people can't see them (prompt-injection defense)" }
+      }
+    },
+    "CaptureParams": {
+      "type": "object",
+      "properties": {
+        "fullPage": { "type": "boolean" },
+        "format": { "type": "string", "enum": ["png", "jpeg"], "description": "Default png" },
+        "quality": { "type": "integer", "minimum": 1, "maximum": 100, "description": "JPEG quality (default 80)" }
+      }
+    },
+    "CaptureResult": {
+      "type": "object",
+      "required": ["at", "path", "format", "width", "height", "bytes", "truncated"],
+      "properties": {
+        "at": { "$ref": "Location" },
+        "path": { "type": "string", "description": "Saved file in the OS temp folder" },
+        "format": { "type": "string" },
+        "width": { "type": "integer" },
+        "height": { "type": "integer" },
+        "bytes": { "type": "integer" },
+        "truncated": { "type": "boolean", "description": "Full-page capture was cut at the maximum height" }
+      }
     }
   },
   "methods": {
-    "gateway.hello": {
-      "description": "Handshake and version negotiation.",
-      "params": "HelloParams",
-      "result": "HelloResult"
-    },
-    "gateway.status": {
-      "description": "Gateway and browser status.",
-      "params": "StatusParams",
-      "result": "StatusResult"
-    }
+    "gateway.hello": { "description": "Handshake and version negotiation.", "params": "HelloParams", "result": "HelloResult" },
+    "gateway.status": { "description": "Gateway and browser status.", "params": "StatusParams", "result": "StatusResult" },
+    "space.create": { "description": "Create an agent Space.", "params": "SpaceCreateParams", "result": "SpaceInfo" },
+    "space.list": { "description": "List the calling agent's Spaces.", "params": "SpaceListParams", "result": "SpaceListResult" },
+    "space.info": { "description": "Describe a Space.", "params": "SpaceRefParams", "result": "SpaceInfo" },
+    "space.close": { "description": "Close a Space and discard its temporary state.", "params": "SpaceRefParams", "result": "SpaceCloseResult" },
+    "space.show": { "description": "Show the Space window to the human without focusing it.", "params": "SpaceRefParams", "result": "SpaceInfo" },
+    "space.hide": { "description": "Hide the Space window.", "params": "SpaceRefParams", "result": "SpaceInfo" },
+    "tab.open": { "description": "Open a tab in the Space and make it active.", "params": "TabOpenParams", "result": "TabResult" },
+    "tab.list": { "description": "List the tabs in the Space.", "params": "TabListParams", "result": "TabListResult" },
+    "tab.info": { "description": "Describe a tab.", "params": "TabRefParams", "result": "TabResult" },
+    "tab.select": { "description": "Make a tab the active tab.", "params": "TabSelectParams", "result": "TabResult" },
+    "tab.close": { "description": "Close a tab.", "params": "TabRefParams", "result": "TabCloseResult" },
+    "nav.goto": { "description": "Navigate the tab.", "params": "GotoParams", "result": "NavResult" },
+    "nav.back": { "description": "Go back in history.", "params": "HistoryParams", "result": "NavResult" },
+    "nav.forward": { "description": "Go forward in history.", "params": "HistoryParams", "result": "NavResult" },
+    "nav.reload": { "description": "Reload the page.", "params": "HistoryParams", "result": "NavResult" },
+    "page.text": { "description": "Readable main text of the page as Markdown.", "params": "TextParams", "result": "TextResult" },
+    "page.capture": { "description": "Screenshot of the viewport or the full page.", "params": "CaptureParams", "result": "CaptureResult" }
   }
 }

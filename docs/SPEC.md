@@ -348,8 +348,8 @@ Notes:
 
 ### 7.3 Visibility of agent Spaces
 
-- Each agent Space renders in its **own window**. By default that window is hidden (offscreen) and can be shown from the Space switcher.
-- Rendering continues while hidden (`backgroundThrottling: false`, `paintWhenInitiallyHidden: true`), so screenshots and layout stay correct.
+- Each agent **tab** renders in its **own window**, hidden by default; showing a Space (from the Space switcher or `agb space show`) shows its active tab's window. One window per tab rather than per Space is deliberate: a `WebContentsView` inside a hidden window produces no frames (no `requestAnimationFrame`, IntersectionObserver, or screenshots), while a hidden `BrowserWindow` keeps painting (found in M1; see [docs/testing/M1-test-cases.md](testing/M1-test-cases.md)).
+- Rendering continues while hidden (`backgroundThrottling: false`, `paintWhenInitiallyHidden: true`), so screenshots and layout stay correct. Screenshots use `webContents.capturePage`, because CDP `Page.captureScreenshot` doesn't answer for hidden windows.
 - Agent windows **never take OS focus**: `focusable: false` while hidden, `showInactive()` when shown, and no `focus()` calls in agent code paths.
 - All input goes through CDP to the target `webContents`. The OS cursor and keyboard focus don't change.
 - The page viewport of an agent tab is fixed by its Space's settings. Showing the window or changing the human's tab layout resizes the window around it, never the viewport (§6.3.4).
@@ -430,7 +430,7 @@ Agents often run each shell command in a new process with no shared environment.
 1. Explicit `--space` / `--tab` flags.
 2. `AGB_SPACE` / `AGB_TAB` env vars.
 3. **Sticky default**: the most recently used Space for this `(agent ID, working directory, parent process tree root)` within the last 30 minutes.
-4. Otherwise a new `cloned` Space is created, and its ID is printed in the output header so the agent can reuse it.
+4. Otherwise a new `cloned` Space is created, and its ID is printed in the output header so the agent can reuse it. (Until `cloned` mode ships with the policy engine in M7, this Space is `isolated`.) Only commands that can start work (`goto`, `tab new`) create a Space; reading commands return `E_NO_SPACE`.
 
 The active tab in a Space is the last tab the agent opened or selected.
 

@@ -2,10 +2,15 @@
 import { app, utilityProcess, type UtilityProcess } from "electron";
 import { join } from "node:path";
 import { removeDiscoveryIfOwned } from "../shared/discovery-file";
+import type { AgentContext } from "@agb/protocol";
 import type { AppInfo, GatewayToMain, MainToGateway, ShellCounts } from "../shared/gateway-ipc";
+import { toMainError } from "./agent/errors";
 import { agbHome, discoveryPath, pipePath } from "../shared/paths";
 
 const MAX_RESTARTS = 3;
+
+/** Runs an agent command that the Gateway has authorized and validated. */
+export type AgentCallHandler = (method: string, params: unknown, ctx: AgentContext, timeoutMs: number) => Promise<unknown>;
 
 export class GatewayHost {
   private child: UtilityProcess | null = null;
@@ -15,6 +20,7 @@ export class GatewayHost {
   constructor(
     private readonly appInfo: AppInfo,
     private readonly counts: () => ShellCounts,
+    private readonly handleCall: AgentCallHandler,
   ) {}
 
   start(): void {
@@ -63,6 +69,18 @@ export class GatewayHost {
       case "ask":
         if (msg.what === "shellCounts") this.send({ type: "reply", id: msg.id, result: this.counts() });
         break;
+      case "call": {
+        const { id, method } = msg;
+        this.handleCall(method, msg.params, msg.ctx, msg.timeoutMs).then(
+          (result) => this.send({ type: "reply", id, result }),
+          (err: unknown) => {
+            const error = toMainError(err);
+            if (error.name === "E_INTERNAL") console.error(`[agent] ${method} failed:`, err);
+            this.send({ type: "reply", id, error });
+          },
+        );
+        break;
+      }
       case "log":
         (msg.level === "error" ? console.error : msg.level === "warn" ? console.warn : console.log)(`[gateway] ${msg.message}`);
         break;

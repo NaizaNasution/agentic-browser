@@ -1,7 +1,10 @@
 // Electron main process: the browser window, the human Space's tabs, and the Agent Gateway.
 import { app, BaseWindow, ipcMain, session, WebContentsView, type IpcMainEvent } from "electron";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { IPC, TOOLBAR_HEIGHT } from "../shared/shell";
+import { ElectronAgentDriver } from "./agent/electron-driver";
+import { AgentService } from "./agent/service";
 import { appInfo, GatewayHost } from "./gateway-host";
 import { installMenu } from "./menu";
 import { HUMAN_PARTITION, TabManager } from "./tabs";
@@ -22,10 +25,21 @@ if (!app.requestSingleInstanceLock()) {
   let win: BaseWindow | null = null;
   let shellView: WebContentsView | null = null;
   let tabs: TabManager | null = null;
-  const gateway = new GatewayHost(appInfo(), () => ({
-    windows: BaseWindow.getAllWindows().length,
-    tabs: tabs?.count ?? 0,
-  }));
+  const agentLog = (m: string) => console.log(`[agent] ${m}`);
+  // Agent Spaces (SPEC §7). Screenshots go to the OS temp folder (SPEC §15.6).
+  const agents = new AgentService(new ElectronAgentDriver(agentLog), {
+    captureDir: join(tmpdir(), "agentic-browser", "captures"),
+    log: agentLog,
+  });
+  const gateway = new GatewayHost(
+    appInfo(),
+    () => ({
+      windows: win ? 1 : 0, // the human's windows; agent tab windows are counted as agentTabs
+      tabs: tabs?.count ?? 0,
+      ...agents.counts(),
+    }),
+    (method, params, ctx, timeoutMs) => agents.handle(method, params, ctx, timeoutMs),
+  );
 
   const focusAddressBar = () => {
     if (!shellView) return;
@@ -75,6 +89,8 @@ if (!app.requestSingleInstanceLock()) {
       tabs = null;
       shellView = null;
       win = null;
+      // Hidden agent windows would keep 'window-all-closed' from firing, so quit here (not on macOS).
+      if (process.platform !== "darwin") app.quit();
     });
 
     const startUrl = process.argv.find((a) => /^https?:\/\//i.test(a));
@@ -122,6 +138,7 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc();
     installMenu(() => tabs, focusAddressBar);
     gateway.start();
+    void agents.cleanupCaptures();
     createWindow();
     if (smokeDir) void runSmokeTest(smokeDir);
 
@@ -135,7 +152,10 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== "darwin") app.quit();
   });
 
-  app.on("before-quit", () => gateway.stop());
+  app.on("before-quit", () => {
+    agents.disposeAll();
+    gateway.stop();
+  });
 
   async function runSmokeTest(dir: string): Promise<void> {
     const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));

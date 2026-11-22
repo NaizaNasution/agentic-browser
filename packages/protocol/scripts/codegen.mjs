@@ -29,7 +29,7 @@ const pascal = (s) => s.replace(/(^|[._-])(\w)/g, (_, __, c) => c.toUpperCase())
 const goField = (s) => {
   const p = pascal(s);
   // Go initialisms
-  return p.replace(/Id$/, "ID").replace(/Ms$/, "Ms").replace(/^Pid$/, "PID").replace(/^Http$/, "HTTP");
+  return p.replace(/Id$/, "ID").replace(/Ms$/, "Ms").replace(/^Pid$/, "PID").replace(/^Http$/, "HTTP").replace(/^Url$/, "URL");
 };
 
 function tsType(t) {
@@ -96,6 +96,28 @@ for (const [m, d] of Object.entries(schema.methods)) {
 }
 ts += `}\nexport type MethodName = keyof Methods;\n`;
 ts += `export const METHOD_NAMES: MethodName[] = ${JSON.stringify(Object.keys(schema.methods))};\n\n`;
+// Runtime type metadata: the Gateway validates params and ctx against it (apps/browser/src/gateway/validate.ts).
+const stripDocs = (v) => JSON.parse(JSON.stringify(v, (k, x) => (k === "description" ? undefined : x)));
+ts += `/** A type from the schema, for runtime validation. */
+export interface TypeSchema {
+  type?: "string" | "integer" | "number" | "boolean" | "array" | "object";
+  $ref?: string;
+  enum?: string[];
+  items?: TypeSchema;
+  properties?: Record<string, TypeSchema>;
+  required?: string[];
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+}
+
+export const TYPE_SCHEMAS: Record<string, TypeSchema> = ${JSON.stringify(stripDocs(schema.types), null, 2)};
+
+/** Params type of each method. */
+export const METHOD_PARAMS: Record<MethodName, string> = ${JSON.stringify(Object.fromEntries(Object.entries(schema.methods).map(([m, d]) => [m, d.params])), null, 2)};
+
+`;
 ts += `export interface RpcRequest<M extends MethodName = MethodName> {\n  jsonrpc: "2.0";\n  id: number | string;\n  method: M;\n  params?: Methods[M]["params"];\n  ctx?: AgentContext;\n}\n\n`;
 ts += `export interface RpcError {\n  code: number;\n  message: string;\n  data?: { name: ErrorName; hint?: string };\n}\n\n`;
 ts += `export interface RpcResponse<M extends MethodName = MethodName> {\n  jsonrpc: "2.0";\n  id: number | string | null;\n  result?: Methods[M]["result"];\n  error?: RpcError;\n}\n`;

@@ -5,12 +5,14 @@ package protocol
 // ProtocolVersion is the Gateway protocol version this client speaks.
 const ProtocolVersion = "1.0"
 
-// AgentContext: Who is calling and what they target (§8.2). All fields optional in M0.
+// AgentContext: Who is calling and what they target (§8.2, §8.5). All fields are optional.
 type AgentContext struct {
-	Agent   string `json:"agent,omitempty"`
-	Session string `json:"session,omitempty"`
-	Space   string `json:"space,omitempty"`
-	Tab     string `json:"tab,omitempty"`
+	Agent     string `json:"agent,omitempty"` // Agent ID label, e.g. claude-code (§8.4). Defaults to unknown.
+	Session   string `json:"session,omitempty"`
+	Space     string `json:"space,omitempty"`     // Target Space; otherwise the sticky Space for (agent, cwd)
+	Tab       string `json:"tab,omitempty"`       // Target tab; otherwise the Space's active tab
+	Cwd       string `json:"cwd,omitempty"`       // Working directory of the calling process, used for the sticky Space
+	TimeoutMs int64  `json:"timeoutMs,omitempty"` // Command timeout (default 30000)
 }
 
 type HelloParams struct {
@@ -39,6 +41,8 @@ type StatusResult struct {
 	Windows         int64    `json:"windows"`
 	Tabs            int64    `json:"tabs"`
 	Transports      []string `json:"transports"`
+	AgentSpaces     int64    `json:"agentSpaces,omitempty"` // Open agent Spaces (all agents)
+	AgentTabs       int64    `json:"agentTabs,omitempty"`   // Open agent tabs (all agents)
 }
 
 // Discovery: Contents of gateway.json (§8.1). Readable by the current user only.
@@ -52,10 +56,158 @@ type Discovery struct {
 	StartedAt string `json:"startedAt"`
 }
 
+// Location: Where a command ran. The CLI prints it as the header line (§9.1).
+type Location struct {
+	Space        string `json:"space"`
+	Tab          string `json:"tab,omitempty"`
+	URL          string `json:"url,omitempty"`
+	Title        string `json:"title,omitempty"`
+	SpaceCreated bool   `json:"spaceCreated,omitempty"` // True if this command created the Space
+	SpaceMode    string `json:"spaceMode,omitempty"`    // Storage mode, set when spaceCreated is true
+}
+
+type SpaceInfo struct {
+	ID         string `json:"id"`
+	Agent      string `json:"agent"`
+	Name       string `json:"name,omitempty"`
+	Mode       string `json:"mode"`
+	Visible    bool   `json:"visible"` // Whether the human can see the Space window
+	Tabs       int64  `json:"tabs"`
+	ActiveTab  string `json:"activeTab,omitempty"`
+	Viewport   string `json:"viewport"` // Fixed page viewport in CSS pixels, e.g. 1280x800
+	CreatedAt  string `json:"createdAt"`
+	LastUsedAt string `json:"lastUsedAt"`
+	Sticky     bool   `json:"sticky"` // Whether this is the default Space for the calling agent and directory
+}
+
+type SpaceCreateParams struct {
+	Mode string `json:"mode,omitempty"` // Storage mode (§7.2). Only isolated is available until M7.
+	Name string `json:"name,omitempty"`
+	Show bool   `json:"show,omitempty"` // Show the Space window to the human (never focused)
+}
+
+type SpaceRefParams struct {
+	Space string `json:"space,omitempty"` // Space ID; defaults to the sticky Space
+}
+
+type SpaceListParams struct {
+}
+
+type SpaceListResult struct {
+	Spaces []SpaceInfo `json:"spaces"`
+}
+
+type SpaceCloseResult struct {
+	Closed     string `json:"closed"`
+	TabsClosed int64  `json:"tabsClosed"`
+}
+
+type TabInfo struct {
+	ID      string `json:"id"`
+	URL     string `json:"url"`
+	Title   string `json:"title"`
+	Active  bool   `json:"active"`
+	Loading bool   `json:"loading"`
+}
+
+type TabOpenParams struct {
+	URL  string `json:"url,omitempty"`  // Default about:blank
+	Wait string `json:"wait,omitempty"` // When to return (default load)
+}
+
+type TabRefParams struct {
+	Tab string `json:"tab,omitempty"` // Tab ID; defaults to the active tab
+}
+
+type TabSelectParams struct {
+	Tab string `json:"tab"`
+}
+
+type TabListParams struct {
+}
+
+type TabListResult struct {
+	Space string    `json:"space"`
+	Tabs  []TabInfo `json:"tabs"`
+}
+
+type TabResult struct {
+	At     Location `json:"at"`
+	Tab    TabInfo  `json:"tab"`
+	Status int64    `json:"status,omitempty"` // HTTP status of the main document, if a page was loaded
+}
+
+type TabCloseResult struct {
+	Closed string   `json:"closed"`
+	Space  string   `json:"space"`
+	At     Location `json:"at,omitempty"` // The new active tab, if any
+}
+
+type GotoParams struct {
+	URL  string `json:"url"`
+	Wait string `json:"wait,omitempty"` // When to return (default load)
+}
+
+type HistoryParams struct {
+	Wait string `json:"wait,omitempty"` // When to return (default load)
+}
+
+type NavResult struct {
+	At         Location `json:"at"`
+	Status     int64    `json:"status,omitempty"` // HTTP status of the main document
+	Moved      bool     `json:"moved,omitempty"`  // For back and forward: false if there was no history entry
+	DurationMs int64    `json:"durationMs"`
+}
+
+type TextParams struct {
+	MaxChars int64 `json:"maxChars,omitempty"` // Default 20000
+}
+
+type TextResult struct {
+	At            Location `json:"at"`
+	Text          string   `json:"text"`  // Readable main text as Markdown. Untrusted page content.
+	Chars         int64    `json:"chars"` // Length of the full text before truncation
+	Truncated     bool     `json:"truncated"`
+	HiddenOmitted int64    `json:"hiddenOmitted"` // Text blocks left out because people can't see them (prompt-injection defense)
+}
+
+type CaptureParams struct {
+	FullPage bool   `json:"fullPage,omitempty"`
+	Format   string `json:"format,omitempty"`  // Default png
+	Quality  int64  `json:"quality,omitempty"` // JPEG quality (default 80)
+}
+
+type CaptureResult struct {
+	At        Location `json:"at"`
+	Path      string   `json:"path"` // Saved file in the OS temp folder
+	Format    string   `json:"format"`
+	Width     int64    `json:"width"`
+	Height    int64    `json:"height"`
+	Bytes     int64    `json:"bytes"`
+	Truncated bool     `json:"truncated"` // Full-page capture was cut at the maximum height
+}
+
 // Method names.
 const (
 	MethodGatewayHello  = "gateway.hello"
 	MethodGatewayStatus = "gateway.status"
+	MethodSpaceCreate   = "space.create"
+	MethodSpaceList     = "space.list"
+	MethodSpaceInfo     = "space.info"
+	MethodSpaceClose    = "space.close"
+	MethodSpaceShow     = "space.show"
+	MethodSpaceHide     = "space.hide"
+	MethodTabOpen       = "tab.open"
+	MethodTabList       = "tab.list"
+	MethodTabInfo       = "tab.info"
+	MethodTabSelect     = "tab.select"
+	MethodTabClose      = "tab.close"
+	MethodNavGoto       = "nav.goto"
+	MethodNavBack       = "nav.back"
+	MethodNavForward    = "nav.forward"
+	MethodNavReload     = "nav.reload"
+	MethodPageText      = "page.text"
+	MethodPageCapture   = "page.capture"
 )
 
 // Error codes.
@@ -67,6 +219,13 @@ const (
 	EInternal       = -32603 // E_INTERNAL
 	EUnauthorized   = -32001 // E_UNAUTHORIZED
 	EVersion        = -32002 // E_VERSION
+	ENoSpace        = -32010 // E_NO_SPACE
+	ENoTab          = -32011 // E_NO_TAB
+	ETimeout        = -32012 // E_TIMEOUT
+	ENavFailed      = -32013 // E_NAV_FAILED
+	ELimit          = -32014 // E_LIMIT
+	EDenied         = -32015 // E_DENIED
+	EUnsupported    = -32016 // E_UNSUPPORTED
 )
 
 // ErrorNames maps error codes to their names.
@@ -78,4 +237,11 @@ var ErrorNames = map[int]string{
 	-32603: "E_INTERNAL",
 	-32001: "E_UNAUTHORIZED",
 	-32002: "E_VERSION",
+	-32010: "E_NO_SPACE",
+	-32011: "E_NO_TAB",
+	-32012: "E_TIMEOUT",
+	-32013: "E_NAV_FAILED",
+	-32014: "E_LIMIT",
+	-32015: "E_DENIED",
+	-32016: "E_UNSUPPORTED",
 }

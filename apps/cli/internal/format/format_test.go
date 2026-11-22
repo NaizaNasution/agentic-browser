@@ -13,13 +13,14 @@ func TestHeader(t *testing.T) {
 		want   string
 	}{
 		{"no fields", nil, "[agb]"},
-		{"plain values", []Field{{"space", "sp_1"}, {"tab", "t_2"}}, "[agb] space=sp_1 tab=t_2"},
-		{"empty values are skipped", []Field{{"space", ""}, {"tab", "t_2"}, {"url", ""}}, "[agb] tab=t_2"},
-		{"spaces are quoted", []Field{{"title", "Sign in to GitHub"}}, `[agb] title="Sign in to GitHub"`},
-		{"quotes are escaped", []Field{{"title", `Say "hi"`}}, `[agb] title="Say \"hi\""`},
-		{"tabs are quoted", []Field{{"title", "a\tb"}}, `[agb] title="a\tb"`},
-		{"URLs stay unquoted", []Field{{"url", "https://example.com/a?b=1&c=2"}}, "[agb] url=https://example.com/a?b=1&c=2"},
-		{"order is kept", []Field{{"b", "2"}, {"a", "1"}}, "[agb] b=2 a=1"},
+		{"plain values", []Field{{Key: "space", Value: "sp_1"}, {Key: "tab", Value: "t_2"}}, "[agb] space=sp_1 tab=t_2"},
+		{"empty values are skipped", []Field{{Key: "space", Value: ""}, {Key: "tab", Value: "t_2"}, {Key: "url", Value: ""}}, "[agb] tab=t_2"},
+		{"spaces are quoted", []Field{{Key: "title", Value: "Sign in to GitHub"}}, `[agb] title="Sign in to GitHub"`},
+		{"quotes are escaped", []Field{{Key: "title", Value: `Say "hi"`}}, `[agb] title="Say \"hi\""`},
+		{"tabs are quoted", []Field{{Key: "title", Value: "a\tb"}}, `[agb] title="a\tb"`},
+		{"URLs stay unquoted", []Field{{Key: "url", Value: "https://example.com/a?b=1&c=2"}}, "[agb] url=https://example.com/a?b=1&c=2"},
+		{"raw values are not quoted", []Field{{Key: "space", Value: "sp_1 (new, isolated)", Raw: true}, {Key: "tab", Value: "t_1"}}, "[agb] space=sp_1 (new, isolated) tab=t_1"},
+		{"order is kept", []Field{{Key: "b", Value: "2"}, {Key: "a", Value: "1"}}, "[agb] b=2 a=1"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

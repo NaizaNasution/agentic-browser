@@ -2,12 +2,19 @@
 
 export const PROTOCOL_VERSION = "1.0";
 
-/** Who is calling and what they target (§8.2). All fields optional in M0. */
+/** Who is calling and what they target (§8.2, §8.5). All fields are optional. */
 export interface AgentContext {
+  /** Agent ID label, e.g. claude-code (§8.4). Defaults to unknown. */
   agent?: string;
   session?: string;
+  /** Target Space; otherwise the sticky Space for (agent, cwd) */
   space?: string;
+  /** Target tab; otherwise the Space's active tab */
   tab?: string;
+  /** Working directory of the calling process, used for the sticky Space */
+  cwd?: string;
+  /** Command timeout (default 30000) */
+  timeoutMs?: number;
 }
 
 export interface HelloParams {
@@ -40,6 +47,10 @@ export interface StatusResult {
   windows: number;
   tabs: number;
   transports: string[];
+  /** Open agent Spaces (all agents) */
+  agentSpaces?: number;
+  /** Open agent tabs (all agents) */
+  agentTabs?: number;
 }
 
 /** Contents of gateway.json (§8.1). Readable by the current user only. */
@@ -56,6 +67,160 @@ export interface Discovery {
   startedAt: string;
 }
 
+/** Where a command ran. The CLI prints it as the header line (§9.1). */
+export interface Location {
+  space: string;
+  tab?: string;
+  url?: string;
+  title?: string;
+  /** True if this command created the Space */
+  spaceCreated?: boolean;
+  /** Storage mode, set when spaceCreated is true */
+  spaceMode?: string;
+}
+
+export interface SpaceInfo {
+  id: string;
+  agent: string;
+  name?: string;
+  mode: "isolated" | "cloned" | "shared" | "persistent";
+  /** Whether the human can see the Space window */
+  visible: boolean;
+  tabs: number;
+  activeTab?: string;
+  /** Fixed page viewport in CSS pixels, e.g. 1280x800 */
+  viewport: string;
+  createdAt: string;
+  lastUsedAt: string;
+  /** Whether this is the default Space for the calling agent and directory */
+  sticky: boolean;
+}
+
+export interface SpaceCreateParams {
+  /** Storage mode (§7.2). Only isolated is available until M7. */
+  mode?: "isolated" | "cloned" | "shared" | "persistent";
+  name?: string;
+  /** Show the Space window to the human (never focused) */
+  show?: boolean;
+}
+
+export interface SpaceRefParams {
+  /** Space ID; defaults to the sticky Space */
+  space?: string;
+}
+
+export type SpaceListParams = Record<string, never>;
+
+export interface SpaceListResult {
+  spaces: SpaceInfo[];
+}
+
+export interface SpaceCloseResult {
+  closed: string;
+  tabsClosed: number;
+}
+
+export interface TabInfo {
+  id: string;
+  url: string;
+  title: string;
+  active: boolean;
+  loading: boolean;
+}
+
+export interface TabOpenParams {
+  /** Default about:blank */
+  url?: string;
+  /** When to return (default load) */
+  wait?: "load" | "domcontentloaded" | "networkidle" | "none";
+}
+
+export interface TabRefParams {
+  /** Tab ID; defaults to the active tab */
+  tab?: string;
+}
+
+export interface TabSelectParams {
+  tab: string;
+}
+
+export type TabListParams = Record<string, never>;
+
+export interface TabListResult {
+  space: string;
+  tabs: TabInfo[];
+}
+
+export interface TabResult {
+  at: Location;
+  tab: TabInfo;
+  /** HTTP status of the main document, if a page was loaded */
+  status?: number;
+}
+
+export interface TabCloseResult {
+  closed: string;
+  space: string;
+  /** The new active tab, if any */
+  at?: Location;
+}
+
+export interface GotoParams {
+  url: string;
+  /** When to return (default load) */
+  wait?: "load" | "domcontentloaded" | "networkidle" | "none";
+}
+
+export interface HistoryParams {
+  /** When to return (default load) */
+  wait?: "load" | "domcontentloaded" | "networkidle" | "none";
+}
+
+export interface NavResult {
+  at: Location;
+  /** HTTP status of the main document */
+  status?: number;
+  /** For back and forward: false if there was no history entry */
+  moved?: boolean;
+  durationMs: number;
+}
+
+export interface TextParams {
+  /** Default 20000 */
+  maxChars?: number;
+}
+
+export interface TextResult {
+  at: Location;
+  /** Readable main text as Markdown. Untrusted page content. */
+  text: string;
+  /** Length of the full text before truncation */
+  chars: number;
+  truncated: boolean;
+  /** Text blocks left out because people can't see them (prompt-injection defense) */
+  hiddenOmitted: number;
+}
+
+export interface CaptureParams {
+  fullPage?: boolean;
+  /** Default png */
+  format?: "png" | "jpeg";
+  /** JPEG quality (default 80) */
+  quality?: number;
+}
+
+export interface CaptureResult {
+  at: Location;
+  /** Saved file in the OS temp folder */
+  path: string;
+  format: string;
+  width: number;
+  height: number;
+  bytes: number;
+  /** Full-page capture was cut at the maximum height */
+  truncated: boolean;
+}
+
 export const ErrorCodes = {
   E_PARSE: -32700,
   E_INVALID_REQUEST: -32600,
@@ -64,6 +229,13 @@ export const ErrorCodes = {
   E_INTERNAL: -32603,
   E_UNAUTHORIZED: -32001,
   E_VERSION: -32002,
+  E_NO_SPACE: -32010,
+  E_NO_TAB: -32011,
+  E_TIMEOUT: -32012,
+  E_NAV_FAILED: -32013,
+  E_LIMIT: -32014,
+  E_DENIED: -32015,
+  E_UNSUPPORTED: -32016,
 } as const;
 export type ErrorName = keyof typeof ErrorCodes;
 
@@ -75,6 +247,13 @@ export const ErrorMessages: Record<ErrorName, string> = {
   E_INTERNAL: "Internal error",
   E_UNAUTHORIZED: "Missing or wrong token; call gateway.hello first",
   E_VERSION: "Incompatible protocol version",
+  E_NO_SPACE: "Unknown Space",
+  E_NO_TAB: "Unknown tab",
+  E_TIMEOUT: "The command took too long",
+  E_NAV_FAILED: "Navigation failed",
+  E_LIMIT: "Space or tab limit reached",
+  E_DENIED: "Denied by policy",
+  E_UNSUPPORTED: "Not supported in this version",
 };
 
 export interface Methods {
@@ -82,9 +261,660 @@ export interface Methods {
   "gateway.hello": { params: HelloParams; result: HelloResult };
   /** Gateway and browser status. */
   "gateway.status": { params: StatusParams; result: StatusResult };
+  /** Create an agent Space. */
+  "space.create": { params: SpaceCreateParams; result: SpaceInfo };
+  /** List the calling agent's Spaces. */
+  "space.list": { params: SpaceListParams; result: SpaceListResult };
+  /** Describe a Space. */
+  "space.info": { params: SpaceRefParams; result: SpaceInfo };
+  /** Close a Space and discard its temporary state. */
+  "space.close": { params: SpaceRefParams; result: SpaceCloseResult };
+  /** Show the Space window to the human without focusing it. */
+  "space.show": { params: SpaceRefParams; result: SpaceInfo };
+  /** Hide the Space window. */
+  "space.hide": { params: SpaceRefParams; result: SpaceInfo };
+  /** Open a tab in the Space and make it active. */
+  "tab.open": { params: TabOpenParams; result: TabResult };
+  /** List the tabs in the Space. */
+  "tab.list": { params: TabListParams; result: TabListResult };
+  /** Describe a tab. */
+  "tab.info": { params: TabRefParams; result: TabResult };
+  /** Make a tab the active tab. */
+  "tab.select": { params: TabSelectParams; result: TabResult };
+  /** Close a tab. */
+  "tab.close": { params: TabRefParams; result: TabCloseResult };
+  /** Navigate the tab. */
+  "nav.goto": { params: GotoParams; result: NavResult };
+  /** Go back in history. */
+  "nav.back": { params: HistoryParams; result: NavResult };
+  /** Go forward in history. */
+  "nav.forward": { params: HistoryParams; result: NavResult };
+  /** Reload the page. */
+  "nav.reload": { params: HistoryParams; result: NavResult };
+  /** Readable main text of the page as Markdown. */
+  "page.text": { params: TextParams; result: TextResult };
+  /** Screenshot of the viewport or the full page. */
+  "page.capture": { params: CaptureParams; result: CaptureResult };
 }
 export type MethodName = keyof Methods;
-export const METHOD_NAMES: MethodName[] = ["gateway.hello","gateway.status"];
+export const METHOD_NAMES: MethodName[] = ["gateway.hello","gateway.status","space.create","space.list","space.info","space.close","space.show","space.hide","tab.open","tab.list","tab.info","tab.select","tab.close","nav.goto","nav.back","nav.forward","nav.reload","page.text","page.capture"];
+
+/** A type from the schema, for runtime validation. */
+export interface TypeSchema {
+  type?: "string" | "integer" | "number" | "boolean" | "array" | "object";
+  $ref?: string;
+  enum?: string[];
+  items?: TypeSchema;
+  properties?: Record<string, TypeSchema>;
+  required?: string[];
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+}
+
+export const TYPE_SCHEMAS: Record<string, TypeSchema> = {
+  "AgentContext": {
+    "type": "object",
+    "properties": {
+      "agent": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "session": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "space": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "tab": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "cwd": {
+        "type": "string",
+        "maxLength": 4096
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 300000
+      }
+    }
+  },
+  "HelloParams": {
+    "type": "object",
+    "required": [
+      "token",
+      "client",
+      "clientVersion",
+      "protocol"
+    ],
+    "properties": {
+      "token": {
+        "type": "string"
+      },
+      "client": {
+        "type": "string"
+      },
+      "clientVersion": {
+        "type": "string"
+      },
+      "protocol": {
+        "type": "string"
+      }
+    }
+  },
+  "HelloResult": {
+    "type": "object",
+    "required": [
+      "appVersion",
+      "protocol",
+      "serverTime"
+    ],
+    "properties": {
+      "appVersion": {
+        "type": "string"
+      },
+      "protocol": {
+        "type": "string"
+      },
+      "serverTime": {
+        "type": "string"
+      }
+    }
+  },
+  "StatusParams": {
+    "type": "object",
+    "properties": {}
+  },
+  "StatusResult": {
+    "type": "object",
+    "required": [
+      "appVersion",
+      "protocol",
+      "pid",
+      "uptimeMs",
+      "windows",
+      "tabs",
+      "transports"
+    ],
+    "properties": {
+      "appVersion": {
+        "type": "string"
+      },
+      "electronVersion": {
+        "type": "string"
+      },
+      "chromeVersion": {
+        "type": "string"
+      },
+      "protocol": {
+        "type": "string"
+      },
+      "pid": {
+        "type": "integer"
+      },
+      "uptimeMs": {
+        "type": "integer"
+      },
+      "windows": {
+        "type": "integer"
+      },
+      "tabs": {
+        "type": "integer"
+      },
+      "transports": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "agentSpaces": {
+        "type": "integer"
+      },
+      "agentTabs": {
+        "type": "integer"
+      }
+    }
+  },
+  "Discovery": {
+    "type": "object",
+    "required": [
+      "version",
+      "protocol",
+      "token",
+      "pid",
+      "startedAt"
+    ],
+    "properties": {
+      "version": {
+        "type": "string"
+      },
+      "protocol": {
+        "type": "string"
+      },
+      "pipe": {
+        "type": "string"
+      },
+      "http": {
+        "type": "string"
+      },
+      "token": {
+        "type": "string"
+      },
+      "pid": {
+        "type": "integer"
+      },
+      "startedAt": {
+        "type": "string"
+      }
+    }
+  },
+  "Location": {
+    "type": "object",
+    "required": [
+      "space"
+    ],
+    "properties": {
+      "space": {
+        "type": "string"
+      },
+      "tab": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "spaceCreated": {
+        "type": "boolean"
+      },
+      "spaceMode": {
+        "type": "string"
+      }
+    }
+  },
+  "SpaceInfo": {
+    "type": "object",
+    "required": [
+      "id",
+      "agent",
+      "mode",
+      "visible",
+      "tabs",
+      "viewport",
+      "createdAt",
+      "lastUsedAt",
+      "sticky"
+    ],
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "agent": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "isolated",
+          "cloned",
+          "shared",
+          "persistent"
+        ]
+      },
+      "visible": {
+        "type": "boolean"
+      },
+      "tabs": {
+        "type": "integer"
+      },
+      "activeTab": {
+        "type": "string"
+      },
+      "viewport": {
+        "type": "string"
+      },
+      "createdAt": {
+        "type": "string"
+      },
+      "lastUsedAt": {
+        "type": "string"
+      },
+      "sticky": {
+        "type": "boolean"
+      }
+    }
+  },
+  "SpaceCreateParams": {
+    "type": "object",
+    "properties": {
+      "mode": {
+        "type": "string",
+        "enum": [
+          "isolated",
+          "cloned",
+          "shared",
+          "persistent"
+        ]
+      },
+      "name": {
+        "type": "string",
+        "maxLength": 80
+      },
+      "show": {
+        "type": "boolean"
+      }
+    }
+  },
+  "SpaceRefParams": {
+    "type": "object",
+    "properties": {
+      "space": {
+        "type": "string",
+        "maxLength": 64
+      }
+    }
+  },
+  "SpaceListParams": {
+    "type": "object",
+    "properties": {}
+  },
+  "SpaceListResult": {
+    "type": "object",
+    "required": [
+      "spaces"
+    ],
+    "properties": {
+      "spaces": {
+        "type": "array",
+        "items": {
+          "$ref": "SpaceInfo"
+        }
+      }
+    }
+  },
+  "SpaceCloseResult": {
+    "type": "object",
+    "required": [
+      "closed",
+      "tabsClosed"
+    ],
+    "properties": {
+      "closed": {
+        "type": "string"
+      },
+      "tabsClosed": {
+        "type": "integer"
+      }
+    }
+  },
+  "TabInfo": {
+    "type": "object",
+    "required": [
+      "id",
+      "url",
+      "title",
+      "active",
+      "loading"
+    ],
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "active": {
+        "type": "boolean"
+      },
+      "loading": {
+        "type": "boolean"
+      }
+    }
+  },
+  "TabOpenParams": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "maxLength": 8192
+      },
+      "wait": {
+        "type": "string",
+        "enum": [
+          "load",
+          "domcontentloaded",
+          "networkidle",
+          "none"
+        ]
+      }
+    }
+  },
+  "TabRefParams": {
+    "type": "object",
+    "properties": {
+      "tab": {
+        "type": "string",
+        "maxLength": 64
+      }
+    }
+  },
+  "TabSelectParams": {
+    "type": "object",
+    "required": [
+      "tab"
+    ],
+    "properties": {
+      "tab": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    }
+  },
+  "TabListParams": {
+    "type": "object",
+    "properties": {}
+  },
+  "TabListResult": {
+    "type": "object",
+    "required": [
+      "space",
+      "tabs"
+    ],
+    "properties": {
+      "space": {
+        "type": "string"
+      },
+      "tabs": {
+        "type": "array",
+        "items": {
+          "$ref": "TabInfo"
+        }
+      }
+    }
+  },
+  "TabResult": {
+    "type": "object",
+    "required": [
+      "at",
+      "tab"
+    ],
+    "properties": {
+      "at": {
+        "$ref": "Location"
+      },
+      "tab": {
+        "$ref": "TabInfo"
+      },
+      "status": {
+        "type": "integer"
+      }
+    }
+  },
+  "TabCloseResult": {
+    "type": "object",
+    "required": [
+      "closed",
+      "space"
+    ],
+    "properties": {
+      "closed": {
+        "type": "string"
+      },
+      "space": {
+        "type": "string"
+      },
+      "at": {
+        "$ref": "Location"
+      }
+    }
+  },
+  "GotoParams": {
+    "type": "object",
+    "required": [
+      "url"
+    ],
+    "properties": {
+      "url": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 8192
+      },
+      "wait": {
+        "type": "string",
+        "enum": [
+          "load",
+          "domcontentloaded",
+          "networkidle",
+          "none"
+        ]
+      }
+    }
+  },
+  "HistoryParams": {
+    "type": "object",
+    "properties": {
+      "wait": {
+        "type": "string",
+        "enum": [
+          "load",
+          "domcontentloaded",
+          "networkidle",
+          "none"
+        ]
+      }
+    }
+  },
+  "NavResult": {
+    "type": "object",
+    "required": [
+      "at",
+      "durationMs"
+    ],
+    "properties": {
+      "at": {
+        "$ref": "Location"
+      },
+      "status": {
+        "type": "integer"
+      },
+      "moved": {
+        "type": "boolean"
+      },
+      "durationMs": {
+        "type": "integer"
+      }
+    }
+  },
+  "TextParams": {
+    "type": "object",
+    "properties": {
+      "maxChars": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 1000000
+      }
+    }
+  },
+  "TextResult": {
+    "type": "object",
+    "required": [
+      "at",
+      "text",
+      "chars",
+      "truncated",
+      "hiddenOmitted"
+    ],
+    "properties": {
+      "at": {
+        "$ref": "Location"
+      },
+      "text": {
+        "type": "string"
+      },
+      "chars": {
+        "type": "integer"
+      },
+      "truncated": {
+        "type": "boolean"
+      },
+      "hiddenOmitted": {
+        "type": "integer"
+      }
+    }
+  },
+  "CaptureParams": {
+    "type": "object",
+    "properties": {
+      "fullPage": {
+        "type": "boolean"
+      },
+      "format": {
+        "type": "string",
+        "enum": [
+          "png",
+          "jpeg"
+        ]
+      },
+      "quality": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      }
+    }
+  },
+  "CaptureResult": {
+    "type": "object",
+    "required": [
+      "at",
+      "path",
+      "format",
+      "width",
+      "height",
+      "bytes",
+      "truncated"
+    ],
+    "properties": {
+      "at": {
+        "$ref": "Location"
+      },
+      "path": {
+        "type": "string"
+      },
+      "format": {
+        "type": "string"
+      },
+      "width": {
+        "type": "integer"
+      },
+      "height": {
+        "type": "integer"
+      },
+      "bytes": {
+        "type": "integer"
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    }
+  }
+};
+
+/** Params type of each method. */
+export const METHOD_PARAMS: Record<MethodName, string> = {
+  "gateway.hello": "HelloParams",
+  "gateway.status": "StatusParams",
+  "space.create": "SpaceCreateParams",
+  "space.list": "SpaceListParams",
+  "space.info": "SpaceRefParams",
+  "space.close": "SpaceRefParams",
+  "space.show": "SpaceRefParams",
+  "space.hide": "SpaceRefParams",
+  "tab.open": "TabOpenParams",
+  "tab.list": "TabListParams",
+  "tab.info": "TabRefParams",
+  "tab.select": "TabSelectParams",
+  "tab.close": "TabRefParams",
+  "nav.goto": "GotoParams",
+  "nav.back": "HistoryParams",
+  "nav.forward": "HistoryParams",
+  "nav.reload": "HistoryParams",
+  "page.text": "TextParams",
+  "page.capture": "CaptureParams"
+};
 
 export interface RpcRequest<M extends MethodName = MethodName> {
   jsonrpc: "2.0";

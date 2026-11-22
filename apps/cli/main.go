@@ -28,6 +28,7 @@ const (
 	exitNoGateway = 3
 	exitDenied    = 4
 	exitTimeout   = 7
+	exitNavFailed = 8
 	exitVersion   = 10
 )
 
@@ -36,6 +37,8 @@ type globals struct {
 	quiet   bool
 	timeout time.Duration
 	agent   string
+	space   string
+	tab     string
 }
 
 type command struct {
@@ -48,8 +51,16 @@ var commands []command
 
 func init() {
 	commands = []command{
-		{"version", "Show CLI, app, and protocol versions", cmdVersion},
+		{"goto", "<url> [--wait load|domcontentloaded|networkidle|none] [--strict]: open a page (starts a Space if needed)", cmdGoto},
+		{"back", "Go back in the tab's history", cmdHistory("back")},
+		{"forward", "Go forward in the tab's history", cmdHistory("forward")},
+		{"reload", "Reload the page", cmdHistory("reload")},
+		{"text", "[--max-chars N]: the page's readable text as Markdown", cmdText},
+		{"capture", "[-o file.png] [--full-page] [--format png|jpeg] [--quality N]: screenshot", cmdCapture},
+		{"tab", "new [<url>] | list | select <id> | close [<id>] | info [<id>]: tabs in the Space", cmdTab},
+		{"space", "new [--mode isolated] [--name n] [--show] | list | info | close | show | hide [<id>]", cmdSpace},
 		{"status", "Show whether the browser's gateway is reachable, and its state", cmdStatus},
+		{"version", "Show CLI, app, and protocol versions", cmdVersion},
 		{"help", "Show this help", func(globals, []string, io.Writer, io.Writer) int { usage(os.Stdout); return exitOK }},
 	}
 }
@@ -57,7 +68,7 @@ func init() {
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(argv []string, stdout, stderr io.Writer) int {
-	g := globals{timeout: 30 * time.Second, agent: os.Getenv("AGB_AGENT")}
+	g := globals{timeout: 30 * time.Second, agent: os.Getenv("AGB_AGENT"), space: os.Getenv("AGB_SPACE"), tab: os.Getenv("AGB_TAB")}
 	if os.Getenv("AGB_JSON") == "1" {
 		g.json = true
 	}
@@ -107,6 +118,18 @@ func run(argv []string, stdout, stderr io.Writer) int {
 				return exitUsage
 			}
 			g.agent = v
+		case "--space":
+			v, ok := needVal()
+			if !ok {
+				return exitUsage
+			}
+			g.space = v
+		case "--tab":
+			v, ok := needVal()
+			if !ok {
+				return exitUsage
+			}
+			g.tab = v
 		default:
 			rest = append(rest, a)
 		}
@@ -126,10 +149,14 @@ func run(argv []string, stdout, stderr io.Writer) int {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintf(w, "agb %s: control Agentic Browser from an AI agent\n\nUsage: agb [--json] [--timeout 30s] [--agent <id>] <command> [args]\n\nCommands:\n", version)
+	fmt.Fprintf(w, "agb %s: control Agentic Browser from an AI agent\n\n"+
+		"Usage: agb [global flags] <command> [args]\n\n"+
+		"Global flags: --space <id> (AGB_SPACE)  --tab <id> (AGB_TAB)  --agent <id> (AGB_AGENT)\n"+
+		"              --json (AGB_JSON=1)  --quiet  --timeout 30s (AGB_TIMEOUT, max 5m)\n\nCommands:\n", version)
 	for _, c := range commands {
-		fmt.Fprintf(w, "  %-9s %s\n", c.name, c.summary)
+		fmt.Fprintf(w, "  %-8s %s\n", c.name, c.summary)
 	}
+	fmt.Fprintln(w, "\nWithout --space, commands use this agent's most recent Space in the current directory.")
 }
 
 // connect finds and dials the Gateway. On failure it prints an error and returns the exit code to use.
@@ -147,47 +174,59 @@ func connect(ctx context.Context, g globals, stderr io.Writer) (*client.Client, 
 	}
 	c, err := client.Connect(ctx, d, version)
 	if err != nil {
-		return nil, reportErr(err, g, stderr)
+		return nil, reportErr(err, g, io.Discard, stderr)
 	}
-	if g.agent != "" {
-		c.Ctx = &protocol.AgentContext{Agent: g.agent}
-	}
+	c.Ctx = agentContext(g)
 	return c, exitOK
 }
 
-func reportErr(err error, g globals, stderr io.Writer) int {
+// exitCodes maps error names to exit codes (SPEC §9.4); everything else exits 1.
+var exitCodes = map[string]int{
+	"E_INVALID_PARAMS": exitUsage,
+	"E_NO_GATEWAY":     exitNoGateway,
+	"E_DENIED":         exitDenied,
+	"E_TIMEOUT":        exitTimeout,
+	"E_NAV_FAILED":     exitNavFailed,
+	"E_VERSION":        exitVersion,
+}
+
+// reportErr prints an error (to stderr, or as {"ok": false, "error": …} on stdout with --json)
+// and returns the exit code for it.
+func reportErr(err error, g globals, stdout, stderr io.Writer) int {
+	name, message, hint := classify(err)
+	if g.json {
+		e := map[string]string{"code": name, "message": message}
+		if hint != "" {
+			e["hint"] = hint
+		}
+		format.JSON(stdout, map[string]any{"ok": false, "error": e})
+	} else {
+		format.Error(stderr, name, message, hint)
+	}
+	if code, ok := exitCodes[name]; ok {
+		return code
+	}
+	return exitError
+}
+
+func classify(err error) (name, message, hint string) {
 	var rpcErr *client.RPCError
 	var unreachable *client.UnreachableError
+	var discErr *discoveryError
 	switch {
 	case errors.As(err, &rpcErr):
-		if !g.json {
-			format.Error(stderr, rpcErr.Name(), rpcErr.Message, rpcErr.Data.Hint)
+		return rpcErr.Name(), rpcErr.Message, rpcErr.Data.Hint
+	case errors.As(err, &discErr):
+		if errors.Is(err, discovery.ErrNotRunning) {
+			return "E_NO_GATEWAY", err.Error(), "start Agentic Browser, then try again"
 		}
-		switch rpcErr.Name() {
-		case "E_VERSION":
-			return exitVersion
-		case "E_DENIED":
-			return exitDenied
-		case "E_TIMEOUT":
-			return exitTimeout
-		}
-		return exitError
+		return "E_NO_GATEWAY", err.Error(), "restart Agentic Browser to rewrite it"
 	case errors.As(err, &unreachable):
-		if !g.json {
-			format.Error(stderr, "E_NO_GATEWAY", unreachable.Error(), "the browser may have crashed; start Agentic Browser again")
-		}
-		return exitNoGateway
+		return "E_NO_GATEWAY", unreachable.Error(), "the browser may have crashed; start Agentic Browser again"
 	case errors.Is(err, context.DeadlineExceeded):
-		if !g.json {
-			format.Error(stderr, "E_TIMEOUT", "the gateway did not answer in time", "check that Agentic Browser is responsive, or raise --timeout")
-		}
-		return exitTimeout
-	default:
-		if !g.json {
-			format.Error(stderr, "E_INTERNAL", err.Error(), "")
-		}
-		return exitError
+		return "E_TIMEOUT", "the gateway did not answer in time", "check that Agentic Browser is responsive, or raise --timeout"
 	}
+	return "E_INTERNAL", err.Error(), ""
 }
 
 func cmdVersion(g globals, _ []string, stdout, stderr io.Writer) int {
@@ -210,7 +249,7 @@ func cmdVersion(g globals, _ []string, stdout, stderr io.Writer) int {
 
 	var st protocol.StatusResult
 	if err := c.Call(ctx, protocol.MethodGatewayStatus, protocol.StatusParams{}, &st); err != nil {
-		return reportErr(err, g, stderr)
+		return reportErr(err, g, stdout, stderr)
 	}
 	if g.json {
 		format.JSON(stdout, map[string]any{"cli": cli, "app": st, "transport": c.Transport})
@@ -236,7 +275,7 @@ func cmdStatus(g globals, _ []string, stdout, stderr io.Writer) int {
 
 	var st protocol.StatusResult
 	if err := c.Call(ctx, protocol.MethodGatewayStatus, protocol.StatusParams{}, &st); err != nil {
-		return reportErr(err, g, stderr)
+		return reportErr(err, g, stdout, stderr)
 	}
 	if g.json {
 		format.JSON(stdout, map[string]any{"ok": true, "running": true, "transport": c.Transport, "status": st})
@@ -252,6 +291,7 @@ func cmdStatus(g globals, _ []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "running: yes (up %s)\n", time.Duration(st.UptimeMs*int64(time.Millisecond)).Round(time.Second))
 	fmt.Fprintf(stdout, "windows: %d  tabs: %d\n", st.Windows, st.Tabs)
+	fmt.Fprintf(stdout, "agent Spaces: %d  agent tabs: %d (all agents; `agb space list` shows yours)\n", st.AgentSpaces, st.AgentTabs)
 	fmt.Fprintf(stdout, "transports: %s\n", strings.Join(st.Transports, ", "))
 	return exitOK
 }
