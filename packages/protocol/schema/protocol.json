@@ -1,0 +1,93 @@
+{
+  "$comment": "Agent Gateway protocol (docs/SPEC.md §8). Edit this file, then run `npm run codegen`. Type kinds supported by the generator: string, integer, number, boolean, array (items), object with properties, $ref to another type, string enum.",
+  "protocolVersion": "1.0",
+  "framing": {
+    "pipe": "Newline-delimited JSON-RPC 2.0. The first request on a connection must be gateway.hello with the token from the discovery file.",
+    "http": "POST /rpc with a single JSON-RPC 2.0 request and header `Authorization: Bearer <token>`. gateway.hello is optional over HTTP."
+  },
+  "errors": {
+    "E_PARSE": { "code": -32700, "message": "Invalid JSON" },
+    "E_INVALID_REQUEST": { "code": -32600, "message": "Invalid JSON-RPC request" },
+    "E_METHOD_NOT_FOUND": { "code": -32601, "message": "Unknown method" },
+    "E_INVALID_PARAMS": { "code": -32602, "message": "Invalid params" },
+    "E_INTERNAL": { "code": -32603, "message": "Internal error" },
+    "E_UNAUTHORIZED": { "code": -32001, "message": "Missing or wrong token; call gateway.hello first" },
+    "E_VERSION": { "code": -32002, "message": "Incompatible protocol version" }
+  },
+  "types": {
+    "AgentContext": {
+      "description": "Who is calling and what they target (§8.2). All fields optional in M0.",
+      "type": "object",
+      "properties": {
+        "agent": { "type": "string" },
+        "session": { "type": "string" },
+        "space": { "type": "string" },
+        "tab": { "type": "string" }
+      }
+    },
+    "HelloParams": {
+      "type": "object",
+      "required": ["token", "client", "clientVersion", "protocol"],
+      "properties": {
+        "token": { "type": "string", "description": "Token from the discovery file" },
+        "client": { "type": "string", "description": "Client name, e.g. 'agb-cli'" },
+        "clientVersion": { "type": "string" },
+        "protocol": { "type": "string", "description": "Protocol version the client speaks, major.minor" }
+      }
+    },
+    "HelloResult": {
+      "type": "object",
+      "required": ["appVersion", "protocol", "serverTime"],
+      "properties": {
+        "appVersion": { "type": "string" },
+        "protocol": { "type": "string", "description": "Protocol version the gateway speaks" },
+        "serverTime": { "type": "string", "description": "RFC 3339 timestamp" }
+      }
+    },
+    "StatusParams": {
+      "type": "object",
+      "properties": {}
+    },
+    "StatusResult": {
+      "type": "object",
+      "required": ["appVersion", "protocol", "pid", "uptimeMs", "windows", "tabs", "transports"],
+      "properties": {
+        "appVersion": { "type": "string" },
+        "electronVersion": { "type": "string" },
+        "chromeVersion": { "type": "string" },
+        "protocol": { "type": "string" },
+        "pid": { "type": "integer" },
+        "uptimeMs": { "type": "integer" },
+        "windows": { "type": "integer" },
+        "tabs": { "type": "integer" },
+        "transports": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "Discovery": {
+      "description": "Contents of gateway.json (§8.1). Readable by the current user only.",
+      "type": "object",
+      "required": ["version", "protocol", "token", "pid", "startedAt"],
+      "properties": {
+        "version": { "type": "string", "description": "App version" },
+        "protocol": { "type": "string" },
+        "pipe": { "type": "string", "description": "Named pipe path (Windows) or Unix socket path" },
+        "http": { "type": "string", "description": "Fallback base URL on 127.0.0.1" },
+        "token": { "type": "string" },
+        "pid": { "type": "integer" },
+        "startedAt": { "type": "string" }
+      }
+    }
+  },
+  "methods": {
+    "gateway.hello": {
+      "description": "Handshake and version negotiation.",
+      "params": "HelloParams",
+      "result": "HelloResult"
+    },
+    "gateway.status": {
+      "description": "Gateway and browser status.",
+      "params": "StatusParams",
+      "result": "StatusResult"
+    }
+  }
+}

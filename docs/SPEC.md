@@ -307,13 +307,13 @@ The human can right-click a tab › **Share with agent…** › choose an agent.
 
 | Priority | Transport | Notes |
 |---|---|---|
-| 1 | Windows named pipe `\\.\pipe\agb-<userSID>`; Unix domain socket `~/Library/Application Support/AgenticBrowser/agb.sock` (macOS), `$XDG_RUNTIME_DIR/agb.sock` (Linux) | Default. OS ACL limits access to the current user. |
+| 1 | Windows named pipe `\\.\pipe\agb-<hash of user + AGB home>`; Unix domain socket `agb.sock` in the AGB home directory (mode 0600) | Default. Newline-delimited JSON-RPC. The first request on a connection must be `gateway.hello` with the token from the discovery file, so access needs both the OS user and the token. |
 | 2 | HTTP + WebSocket on `127.0.0.1:<random port>` | Fallback for tools that can't use pipes. Bound to loopback only. Requires a bearer token. `Host` and `Origin` headers checked to block DNS rebinding and browser-originated requests. |
 
-**Discovery file:** `%LOCALAPPDATA%\AgenticBrowser\gateway.json` (Windows), `~/Library/Application Support/AgenticBrowser/gateway.json` (macOS), `$XDG_STATE_HOME/agentic-browser/gateway.json` (Linux). It is readable only by the current user and contains:
+**Discovery file:** `gateway.json` in the **AGB home directory**: `%LOCALAPPDATA%\AgenticBrowser\` (Windows), `~/Library/Application Support/AgenticBrowser/` (macOS), `$XDG_STATE_HOME/agentic-browser/` (Linux). The `AGB_HOME` environment variable overrides the directory for both the app and the CLI (used for tests and side-by-side dev builds). The file is readable only by the current user, is deleted when the app quits, and contains:
 
 ```json
-{ "version": "1.0.0", "pipe": "\\\\.\\pipe\\agb-S-1-5-21-...", "http": "http://127.0.0.1:51234",
+{ "version": "1.0.0", "protocol": "1.0", "pipe": "\\\\.\\pipe\\agb-b9c1aa49adceca46", "http": "http://127.0.0.1:51234",
   "token": "<256-bit random, rotated each launch>", "pid": 12345, "startedAt": "2026-11-22T10:00:00Z" }
 ```
 

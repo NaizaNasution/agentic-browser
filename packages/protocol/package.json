@@ -1,0 +1,8 @@
+{
+  "name": "@agb/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Single source of truth for the Agent Gateway JSON-RPC protocol. Generates TypeScript and Go types.",
+  "main": "gen/ts/index.ts",
+  "types": "gen/ts/index.ts"
+}

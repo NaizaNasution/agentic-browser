@@ -1,0 +1,8 @@
+node_modules/
+dist/
+bin/
+out/
+*.log
+.DS_Store
+# local test profiles
+.agb-dev-profile/

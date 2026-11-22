@@ -1,0 +1,181 @@
+:root {
+  --bg: #dfe3e8;
+  --tab-bg: transparent;
+  --tab-hover: #eceff2;
+  --tab-active: #ffffff;
+  --toolbar: #ffffff;
+  --text: #1f2328;
+  --muted: #59636e;
+  --border: #c9ced4;
+  --input-bg: #eef1f4;
+  --focus: #2f6fdb;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1d21;
+    --tab-hover: #2a2d33;
+    --tab-active: #33363d;
+    --toolbar: #33363d;
+    --text: #e6e8eb;
+    --muted: #a0a7b0;
+    --border: #44484f;
+    --input-bg: #24272c;
+    --focus: #6b9cf0;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.3 "Segoe UI", system-ui, -apple-system, sans-serif;
+  user-select: none;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 80px; /* TOOLBAR_HEIGHT in src/shared/shell.ts */
+}
+
+.tabstrip {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 38px;
+  padding: 0 8px;
+  overflow: hidden;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 220px;
+  min-width: 48px;
+  height: 32px;
+  padding: 0 6px 0 12px;
+  border-radius: 8px 8px 0 0;
+  background: var(--tab-bg);
+  cursor: default;
+}
+
+.tab:hover {
+  background: var(--tab-hover);
+}
+
+.tab.active {
+  background: var(--tab-active);
+}
+
+.tab-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tab-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.tab-icon.placeholder {
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.tab-icon.spinner {
+  border: 2px solid var(--border);
+  border-top-color: var(--focus);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+}
+
+button:hover:not(:disabled) {
+  background: var(--tab-hover);
+}
+
+button:disabled {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+button:focus-visible,
+.address:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.tab-close {
+  width: 20px;
+  height: 20px;
+  line-height: 18px;
+  font-size: 16px;
+  flex: none;
+}
+
+.newtab {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 2px;
+  font-size: 18px;
+  flex: none;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 42px;
+  padding: 0 8px;
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar > button {
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  flex: none;
+}
+
+.address {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  user-select: text;
+}

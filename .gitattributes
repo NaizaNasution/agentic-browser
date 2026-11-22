@@ -1,0 +1,9 @@
+# Keep LF line endings on every OS. The codegen drift check (npm run codegen:check)
+# compares generated files byte-for-byte, so CRLF checkouts on Windows would fail it.
+* text=auto eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.ico binary
+*.exe binary

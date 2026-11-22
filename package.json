@@ -1,0 +1,23 @@
+{
+  "name": "agentic-browser",
+  "private": true,
+  "description": "A desktop browser that people and AI agents share. See docs/SPEC.md.",
+  "workspaces": [
+    "packages/protocol",
+    "apps/browser"
+  ],
+  "scripts": {
+    "codegen": "node packages/protocol/scripts/codegen.mjs",
+    "codegen:check": "node packages/protocol/scripts/codegen.mjs --check",
+    "build:browser": "npm run build --workspace apps/browser",
+    "build:cli": "node scripts/build-cli.mjs",
+    "build": "npm run codegen && npm run build:browser && npm run build:cli",
+    "typecheck": "npm run typecheck --workspace apps/browser",
+    "start": "npm run start --workspace apps/browser",
+    "test": "node --test \"packages/protocol/test/*.test.mjs\" && npm run test --workspace apps/browser && node scripts/test-cli.mjs",
+    "test:e2e": "npm run test:e2e --workspace apps/browser"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

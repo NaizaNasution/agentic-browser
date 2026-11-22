@@ -1,0 +1,28 @@
+{
+  "name": "agentic-browser-app",
+  "productName": "Agentic Browser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agentic Browser desktop app (Electron shell + Agent Gateway).",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "node scripts/build.mjs && electron .",
+    "test": "node scripts/build.mjs --tests && node --test \"dist/test/*.test.js\"",
+    "test:e2e": "node scripts/build.mjs --e2e && node --test --test-concurrency=1 --test-timeout=60000 \"dist/test-e2e/*.e2e.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "electron": "^45.4.1",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tldts": "7.4.19"
+  }
+}
