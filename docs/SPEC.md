@@ -355,6 +355,7 @@ Notes:
 - Agent windows **never take OS focus**: `focusable: false`, `showInactive()`, and no `focus()` calls in agent code paths.
 - All input goes through CDP to the target `webContents`. The OS cursor and keyboard focus don't change.
 - The page viewport of an agent tab is fixed by its Space's settings. Showing the window or changing the human's tab layout resizes the window around it, never the viewport (§6.3.4).
+- The viewport is set with CDP device emulation (`Emulation.setDeviceMetricsOverride`), not by the window's size, because the OS may make the window smaller: Windows shrinks a window that is bigger than the screen (on a 1024×768 CI runner a 1280×800 window got a 1008×681 page). Screenshots (`capturePage`) and CDP input follow the emulated size, even past the window's edge. A shown window on a small screen shows only part of the page; the agent's page and screenshots are unaffected.
 
 ### 7.4 Sharing a human tab with an agent
 

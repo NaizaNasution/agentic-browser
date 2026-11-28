@@ -306,6 +306,16 @@ class ElectronTab implements TabBackend, ActorHost {
       if (!this.disposed) this.log(`space ${this.spec.spaceId}: debugger detached (${reason})`);
     });
     await this.enableSession("");
+    await this.pinViewport();
+  }
+
+  /**
+   * Sets the page's viewport to the Space's (SPEC §7.3) through device emulation, whatever size the OS lets the
+   * window be: Windows shrinks a window that is bigger than the screen (1280x800 became 1008x681 on a 1024x768
+   * CI runner). capturePage and CDP input both follow the emulated size, even beyond the real window.
+   */
+  private pinViewport(height = this.spec.viewport.height): Promise<unknown> {
+    return this.cdp("Emulation.setDeviceMetricsOverride", { width: this.spec.viewport.width, height, deviceScaleFactor: 0, mobile: false });
   }
 
   private async enableSession(session: string): Promise<void> {
@@ -374,7 +384,7 @@ class ElectronTab implements TabBackend, ActorHost {
     const fullHeight = Math.ceil(metrics.cssContentSize?.height ?? this.spec.viewport.height);
     const maxHeight = Math.floor(MAX_FULL_PAGE_HEIGHT / Math.max(1, dpr || 1));
     const height = Math.max(this.spec.viewport.height, Math.min(fullHeight, maxHeight));
-    await this.cdp("Emulation.setDeviceMetricsOverride", { width: this.spec.viewport.width, height, deviceScaleFactor: 0, mobile: false });
+    await this.pinViewport(height);
     try {
       await this.evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))", deadline, true);
       const img = await this.until(deadline, "capture", this.wc.capturePage(undefined, { stayHidden: true }));
@@ -383,7 +393,7 @@ class ElectronTab implements TabBackend, ActorHost {
       const data = opts.format === "jpeg" ? img.toJPEG(opts.quality) : img.toPNG();
       return { data, width: size.width, height: size.height, truncated: fullHeight > height };
     } finally {
-      await this.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
+      await this.pinViewport().catch(() => {}); // back to the Space's viewport (clearing would fall back to the window's size)
     }
   }
 
