@@ -39,8 +39,10 @@ type globals struct {
 	quiet   bool
 	timeout time.Duration
 	agent   string
-	space   string
-	tab     string
+	// agentFlag is --agent as given on the command line (not AGB_AGENT); `skill install` uses it to pick agents.
+	agentFlag string
+	space     string
+	tab       string
 }
 
 type command struct {
@@ -53,10 +55,10 @@ var commands []command
 
 func init() {
 	commands = []command{
-		{"goto", "<url> [--wait load|domcontentloaded|networkidle|none] [--strict]: open a page (starts a Space if needed)", cmdGoto},
-		{"back", "Go back in the tab's history", cmdHistory("back")},
-		{"forward", "Go forward in the tab's history", cmdHistory("forward")},
-		{"reload", "Reload the page", cmdHistory("reload")},
+		{"goto", "<url> [--snapshot] [--wait load|domcontentloaded|networkidle|none] [--strict]: open a page (starts a Space if needed)", cmdGoto},
+		{"back", "[--snapshot]: go back in the tab's history", cmdHistory("back")},
+		{"forward", "[--snapshot]: go forward in the tab's history", cmdHistory("forward")},
+		{"reload", "[--snapshot]: reload the page", cmdHistory("reload")},
 		{"snapshot", "[--mode interactive|full] [--scope <ref>] [--max-tokens N] [--diff]: the page as text with refs (@e12)", cmdSnapshot},
 		{"click", "<ref> [--button right] [--count 2] [--modifiers ctrl,shift] [--follow]: click an element", cmdAction("click")},
 		{"fill", `<ref> "<text>" [--submit] [--no-clear] [--direct]: replace a field's text by typing`, cmdAction("fill")},
@@ -75,6 +77,8 @@ func init() {
 		{"capture", "[-o file.png] [--full-page] [--format png|jpeg] [--quality N]: screenshot", cmdCapture},
 		{"tab", "new [<url>] | list | select <id> | close [<id>] | info [<id>]: tabs in the Space", cmdTab},
 		{"space", "new [--mode isolated] [--name n] [--show] | list | info | close | show | hide [<id>]", cmdSpace},
+		{"skill", "[install|uninstall [--agent claude-code|codex|cursor|gemini|all] [--project] [--path <dir>]]: print the usage guide (agents run this first), or install the skill", cmdSkill},
+		{"doctor", "Check the setup: PATH, browser, versions, skill folders", cmdDoctor},
 		{"status", "Show whether the browser's gateway is reachable, and its state", cmdStatus},
 		{"version", "Show CLI, app, and protocol versions", cmdVersion},
 		{"help", "Show this help", func(globals, []string, io.Writer, io.Writer) int { usage(os.Stdout); return exitOK }},
@@ -134,6 +138,7 @@ func run(argv []string, stdout, stderr io.Writer) int {
 				return exitUsage
 			}
 			g.agent = v
+			g.agentFlag = v
 		case "--space":
 			v, ok := needVal()
 			if !ok {

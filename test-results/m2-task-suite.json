@@ -6,245 +6,245 @@
       "id": "T-01",
       "name": "sign in and reach the dashboard",
       "ok": true,
-      "ms": 1438,
+      "ms": 1595,
       "commands": 7
     },
     {
       "id": "T-02",
       "name": "a wrong password shows an error",
       "ok": true,
-      "ms": 972,
+      "ms": 1010,
       "commands": 5
     },
     {
       "id": "T-03",
       "name": "fill a long sign-up form (text, email, select, radio, textarea, checkbox)",
       "ok": true,
-      "ms": 3337,
+      "ms": 3422,
       "commands": 10
     },
     {
       "id": "T-04",
       "name": "browser validation stops an incomplete form; fixing it submits",
       "ok": true,
-      "ms": 2400,
+      "ms": 2413,
       "commands": 9
     },
     {
       "id": "T-05",
       "name": "add items to the cart",
       "ok": true,
-      "ms": 1318,
+      "ms": 1307,
       "commands": 6
     },
     {
       "id": "T-06",
       "name": "place an order, accepting the confirm dialog",
       "ok": true,
-      "ms": 1554,
+      "ms": 1619,
       "commands": 8
     },
     {
       "id": "T-07",
       "name": "cancel an order by dismissing the confirm dialog",
       "ok": true,
-      "ms": 1540,
+      "ms": 1562,
       "commands": 9
     },
     {
       "id": "T-08",
       "name": "add three to-dos in a client-side app",
       "ok": true,
-      "ms": 1824,
+      "ms": 1850,
       "commands": 7
     },
     {
       "id": "T-09",
       "name": "complete a to-do (the list re-renders after each change)",
       "ok": true,
-      "ms": 851,
+      "ms": 826,
       "commands": 4
     },
     {
       "id": "T-10",
       "name": "delete a to-do",
       "ok": true,
-      "ms": 781,
+      "ms": 806,
       "commands": 3
     },
     {
       "id": "T-11",
       "name": "a cookie banner covers the page: dismiss it, then continue",
       "ok": true,
-      "ms": 6229,
+      "ms": 6228,
       "commands": 7
     },
     {
       "id": "T-12",
       "name": "subscribe through a form inside shadow DOM",
       "ok": true,
-      "ms": 1325,
+      "ms": 1270,
       "commands": 6
     },
     {
       "id": "T-13",
       "name": "click a button inside a same-site iframe",
       "ok": true,
-      "ms": 784,
+      "ms": 790,
       "commands": 3
     },
     {
       "id": "T-14",
       "name": "submit a form inside a cross-site iframe",
       "ok": true,
-      "ms": 1250,
+      "ms": 1312,
       "commands": 5
     },
     {
       "id": "T-15",
       "name": "scroll an infinite feed until story 40 appears, then open it",
       "ok": true,
-      "ms": 2163,
+      "ms": 2208,
       "commands": 9
     },
     {
       "id": "T-16",
       "name": "acknowledge an alert",
       "ok": true,
-      "ms": 760,
+      "ms": 827,
       "commands": 6
     },
     {
       "id": "T-17",
       "name": "a dialog opened later by a timer blocks the next command until answered",
       "ok": true,
-      "ms": 2185,
+      "ms": 2258,
       "commands": 7
     },
     {
       "id": "T-18",
       "name": "download a CSV into the Space's download folder",
       "ok": true,
-      "ms": 493,
+      "ms": 742,
       "commands": 4
     },
     {
       "id": "T-19",
       "name": "upload a file from the working directory",
       "ok": true,
-      "ms": 923,
+      "ms": 972,
       "commands": 5
     },
     {
       "id": "T-20",
       "name": "open a hover menu and choose an item",
       "ok": true,
-      "ms": 1108,
+      "ms": 1150,
       "commands": 5
     },
     {
       "id": "T-21",
       "name": "choose from an ARIA combobox and a native select, then save",
       "ok": true,
-      "ms": 2273,
+      "ms": 2298,
       "commands": 6
     },
     {
       "id": "T-22",
       "name": "switch to another tab panel and read it",
       "ok": true,
-      "ms": 786,
+      "ms": 838,
       "commands": 4
     },
     {
       "id": "T-23",
       "name": "a link opens a new tab: follow it and read it",
       "ok": true,
-      "ms": 792,
+      "ms": 777,
       "commands": 5
     },
     {
       "id": "T-24",
       "name": "search with live suggestions",
       "ok": true,
-      "ms": 1245,
+      "ms": 1243,
       "commands": 6
     },
     {
       "id": "T-25",
       "name": "a three-step wizard whose Next buttons start disabled",
       "ok": true,
-      "ms": 8589,
+      "ms": 8753,
       "commands": 15
     },
     {
       "id": "T-26",
       "name": "page through a table to find a row and edit it",
       "ok": true,
-      "ms": 1011,
+      "ms": 1098,
       "commands": 7
     },
     {
       "id": "T-27",
       "name": "open a command palette with Control+K and run a command",
       "ok": true,
-      "ms": 1626,
+      "ms": 1742,
       "commands": 4
     },
     {
       "id": "T-28",
       "name": "replace the text of a rich-text editor",
       "ok": true,
-      "ms": 1282,
+      "ms": 1360,
       "commands": 5
     },
     {
       "id": "T-29",
       "name": "wait for content that arrives late",
       "ok": true,
-      "ms": 2071,
+      "ms": 2184,
       "commands": 5
     },
     {
       "id": "T-30",
       "name": "expand a disclosure to read the answer",
       "ok": true,
-      "ms": 826,
+      "ms": 963,
       "commands": 6
     },
     {
       "id": "T-31",
       "name": "navigate, go back, and go forward",
       "ok": true,
-      "ms": 537,
+      "ms": 718,
       "commands": 5
     },
     {
       "id": "T-32",
       "name": "work in two tabs",
       "ok": true,
-      "ms": 493,
+      "ms": 800,
       "commands": 6
     },
     {
       "id": "T-33",
       "name": "an element replaced after every click is re-found by its ref",
       "ok": true,
-      "ms": 1246,
+      "ms": 1358,
       "commands": 4
     },
     {
       "id": "T-34",
       "name": "an old ref after navigation is an error, not a wrong click",
       "ok": true,
-      "ms": 513,
+      "ms": 643,
       "commands": 5
     },
     {
       "id": "T-35",
       "name": "read a page's text and refs in a scoped snapshot",
       "ok": true,
-      "ms": 304,
+      "ms": 393,
       "commands": 3
     }
   ]

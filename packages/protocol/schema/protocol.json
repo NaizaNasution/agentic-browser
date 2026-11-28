@@ -58,6 +58,17 @@
       }
     },
     "StatusParams": { "type": "object", "properties": {} },
+    "GuideParams": { "type": "object", "properties": {} },
+    "GuideResult": {
+      "description": "The skill guide for this app version (§13.4), printed by agb skill.",
+      "type": "object",
+      "required": ["appVersion", "protocol", "text"],
+      "properties": {
+        "appVersion": { "type": "string" },
+        "protocol": { "type": "string" },
+        "text": { "type": "string", "description": "Markdown, ending with the line [agb:skill] end of guide" }
+      }
+    },
     "StatusResult": {
       "type": "object",
       "required": ["appVersion", "protocol", "pid", "uptimeMs", "windows", "tabs", "transports"],
@@ -183,13 +194,15 @@
       "required": ["url"],
       "properties": {
         "url": { "type": "string", "minLength": 1, "maxLength": 8192 },
-        "wait": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle", "none"], "description": "When to return (default load)" }
+        "wait": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle", "none"], "description": "When to return (default load)" },
+        "snapshot": { "type": "boolean", "description": "Return a fresh interactive snapshot with the result" }
       }
     },
     "HistoryParams": {
       "type": "object",
       "properties": {
-        "wait": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle", "none"], "description": "When to return (default load)" }
+        "wait": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle", "none"], "description": "When to return (default load)" },
+        "snapshot": { "type": "boolean", "description": "Return a fresh interactive snapshot with the result" }
       }
     },
     "NavResult": {
@@ -200,7 +213,8 @@
         "status": { "type": "integer", "description": "HTTP status of the main document" },
         "moved": { "type": "boolean", "description": "For back and forward: false if there was no history entry" },
         "durationMs": { "type": "integer" },
-        "dialog": { "$ref": "DialogInfo", "description": "A dialog opened while the page loaded and is waiting (use dialog accept or dismiss)" }
+        "dialog": { "$ref": "DialogInfo", "description": "A dialog opened while the page loaded and is waiting (use dialog accept or dismiss)" },
+        "snapshot": { "$ref": "SnapshotResult", "description": "Present when snapshot was requested and no dialog is waiting" }
       }
     },
     "TextParams": { "type": "object", "properties": { "maxChars": { "type": "integer", "minimum": 100, "maximum": 1000000, "description": "Default 20000" } } },
@@ -437,6 +451,7 @@
   "methods": {
     "gateway.hello": { "description": "Handshake and version negotiation.", "params": "HelloParams", "result": "HelloResult" },
     "gateway.status": { "description": "Gateway and browser status.", "params": "StatusParams", "result": "StatusResult" },
+    "gateway.guide": { "description": "The skill guide for this app version (§13.4).", "params": "GuideParams", "result": "GuideResult" },
     "space.create": { "description": "Create an agent Space.", "params": "SpaceCreateParams", "result": "SpaceInfo" },
     "space.list": { "description": "List the calling agent's Spaces.", "params": "SpaceListParams", "result": "SpaceListResult" },
     "space.info": { "description": "Describe a Space.", "params": "SpaceRefParams", "result": "SpaceInfo" },

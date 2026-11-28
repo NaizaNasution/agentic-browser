@@ -7,15 +7,16 @@
     "apps/browser"
   ],
   "scripts": {
-    "codegen": "node packages/protocol/scripts/codegen.mjs",
-    "codegen:check": "node packages/protocol/scripts/codegen.mjs --check",
+    "codegen": "node packages/protocol/scripts/codegen.mjs && node scripts/sync-skill.mjs",
+    "codegen:check": "node packages/protocol/scripts/codegen.mjs --check && node scripts/sync-skill.mjs --check",
     "build:browser": "npm run build --workspace apps/browser",
     "build:cli": "node scripts/build-cli.mjs",
     "build": "npm run codegen && npm run build:browser && npm run build:cli",
-    "typecheck": "npm run typecheck --workspace apps/browser",
+    "typecheck": "npm run typecheck --workspace apps/browser && tsc -p evals/agent/tsconfig.json",
     "start": "npm run start --workspace apps/browser",
     "test": "node --test \"packages/protocol/test/*.test.mjs\" && npm run test --workspace apps/browser && node scripts/test-cli.mjs",
-    "test:e2e": "npm run test:e2e --workspace apps/browser"
+    "test:e2e": "npm run test:e2e --workspace apps/browser",
+    "eval:agent": "node evals/agent/run.mjs"
   },
   "engines": {
     "node": ">=22"

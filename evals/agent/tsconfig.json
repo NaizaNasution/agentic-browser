@@ -1,0 +1,5 @@
+{
+  "extends": "../../apps/browser/tsconfig.json",
+  "compilerOptions": { "noEmit": true, "paths": { "@agb/protocol": ["../../packages/protocol/gen/ts/index.ts"] } },
+  "include": ["*.ts"]
+}

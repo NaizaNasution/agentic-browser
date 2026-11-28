@@ -677,20 +677,35 @@ export class AgentService {
     if (ctx.tab) tab = this.existingTab({ ...ctx, space: space.id }).tab;
     else tab = (space.activeTab && space.tabs.get(space.activeTab)) || (await this.createTab(space, true));
     const { status, dialog } = await this.onTab(tab, () => this.guard(tab, deadline, "navigation", () => tab.backend.navigate(url, p.wait ?? "load", deadline)));
-    return { at: this.location(space, tab, created), ...(status ? { status } : {}), ...(dialog ? { dialog } : {}), durationMs: this.now() - started };
+    const snapshot = p.snapshot && !dialog ? await this.navSnapshot(space, tab, deadline) : undefined;
+    return {
+      at: this.location(space, tab, created),
+      ...(status ? { status } : {}),
+      ...(dialog ? { dialog } : {}),
+      ...(snapshot ? { snapshot } : {}),
+      durationMs: this.now() - started,
+    };
   }
 
   private async history(action: "back" | "forward" | "reload", p: HistoryParams, ctx: AgentContext, deadline: number): Promise<NavResult> {
     const started = this.now();
     const { space, tab } = this.existingTab(ctx);
     const r = await this.onTab(tab, () => this.guard(tab, deadline, action, () => tab.backend.history(action, p.wait ?? "load", deadline)));
+    const snapshot = p.snapshot && !r.dialog ? await this.navSnapshot(space, tab, deadline) : undefined;
     return {
       at: this.location(space, tab),
       ...(r.status ? { status: r.status } : {}),
       ...(r.dialog ? { dialog: r.dialog } : {}),
       ...(action !== "reload" ? { moved: r.moved } : {}),
+      ...(snapshot ? { snapshot } : {}),
       durationMs: this.now() - started,
     };
+  }
+
+  /** The interactive snapshot that goto/back/forward/reload --snapshot add to their result. */
+  private async navSnapshot(space: SpaceRec, tab: TabRec, deadline: number): Promise<SnapshotResult> {
+    const r = await this.onTab(tab, () => tab.backend.snapshot({}, deadline));
+    return { at: this.location(space, tab), ...r };
   }
 
   private async text(p: TextParams, ctx: AgentContext, deadline: number): Promise<TextResult> {

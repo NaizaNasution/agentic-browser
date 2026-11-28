@@ -31,6 +31,16 @@ type HelloResult struct {
 type StatusParams struct {
 }
 
+type GuideParams struct {
+}
+
+// GuideResult: The skill guide for this app version (§13.4), printed by agb skill.
+type GuideResult struct {
+	AppVersion string `json:"appVersion"`
+	Protocol   string `json:"protocol"`
+	Text       string `json:"text"` // Markdown, ending with the line [agb:skill] end of guide
+}
+
 type StatusResult struct {
 	AppVersion      string   `json:"appVersion"`
 	ElectronVersion string   `json:"electronVersion,omitempty"`
@@ -144,20 +154,23 @@ type TabCloseResult struct {
 }
 
 type GotoParams struct {
-	URL  string `json:"url"`
-	Wait string `json:"wait,omitempty"` // When to return (default load)
+	URL      string `json:"url"`
+	Wait     string `json:"wait,omitempty"`     // When to return (default load)
+	Snapshot bool   `json:"snapshot,omitempty"` // Return a fresh interactive snapshot with the result
 }
 
 type HistoryParams struct {
-	Wait string `json:"wait,omitempty"` // When to return (default load)
+	Wait     string `json:"wait,omitempty"`     // When to return (default load)
+	Snapshot bool   `json:"snapshot,omitempty"` // Return a fresh interactive snapshot with the result
 }
 
 type NavResult struct {
-	At         Location    `json:"at"`
-	Status     int64       `json:"status,omitempty"` // HTTP status of the main document
-	Moved      bool        `json:"moved,omitempty"`  // For back and forward: false if there was no history entry
-	DurationMs int64       `json:"durationMs"`
-	Dialog     *DialogInfo `json:"dialog,omitempty"` // A dialog opened while the page loaded and is waiting (use dialog accept or dismiss)
+	At         Location        `json:"at"`
+	Status     int64           `json:"status,omitempty"` // HTTP status of the main document
+	Moved      bool            `json:"moved,omitempty"`  // For back and forward: false if there was no history entry
+	DurationMs int64           `json:"durationMs"`
+	Dialog     *DialogInfo     `json:"dialog,omitempty"`   // A dialog opened while the page loaded and is waiting (use dialog accept or dismiss)
+	Snapshot   *SnapshotResult `json:"snapshot,omitempty"` // Present when snapshot was requested and no dialog is waiting
 }
 
 type TextParams struct {
@@ -359,6 +372,7 @@ type DownloadWaitResult struct {
 const (
 	MethodGatewayHello  = "gateway.hello"
 	MethodGatewayStatus = "gateway.status"
+	MethodGatewayGuide  = "gateway.guide"
 	MethodSpaceCreate   = "space.create"
 	MethodSpaceList     = "space.list"
 	MethodSpaceInfo     = "space.info"

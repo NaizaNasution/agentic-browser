@@ -10,6 +10,7 @@ const cliDir = join(root, "apps/cli");
 const { version } = JSON.parse(readFileSync(join(root, "apps/browser/package.json"), "utf8"));
 const out = join(root, "bin", process.platform === "win32" ? "agb.exe" : "agb");
 
+run(process.execPath, [join(root, "scripts/sync-skill.mjs")], root); // the embedded skill package
 run(goBin("gofmt"), ["-w", "internal/protocol"], cliDir); // generated code
 run(goBin(), ["build", "-trimpath", "-ldflags", `-s -w -X main.version=${version}`, "-o", out, "."], cliDir);
 console.log(`build-cli: wrote ${out}`);
