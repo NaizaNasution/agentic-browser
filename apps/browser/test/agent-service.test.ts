@@ -465,3 +465,31 @@ test("S-23: counts and disposeAll", async () => {
   assert.deepEqual(svc.counts(), { agentSpaces: 0, agentTabs: 0 });
   assert.ok(driver.tabs.every((t) => t.closed));
 });
+
+// ---------- M3 (docs/testing/M3-test-cases.md) ----------
+
+test("Z-04: goto, back, and reload with snapshot add an interactive snapshot of the new page", async () => {
+  const { call, driver } = setup();
+  const r = await call("nav.goto", { url: "https://example.com", snapshot: true });
+  assert.equal(r.snapshot.text, 'button "OK" @e1');
+  assert.deepEqual(r.snapshot.at, { space: r.at.space, tab: r.at.tab, url: r.at.url, title: r.at.title });
+  const tab = driver.tabs[0]!;
+  assert.deepEqual(tab.log.slice(-2), ["navigate https://example.com/ load", "snapshot interactive"]);
+  const back = await call("nav.back", { snapshot: true });
+  assert.equal(back.snapshot.refs, 1);
+  const plain = await call("nav.reload", {});
+  assert.equal(plain.snapshot, undefined);
+  assert.equal(tab.log.filter((l) => l.startsWith("snapshot")).length, 2);
+});
+
+test("Z-05: no snapshot when a dialog opened during the navigation (the page is blocked)", async () => {
+  const { call, driver } = setup();
+  await call("nav.goto", { url: "https://example.com" });
+  const tab = driver.tabs[0]!;
+  const dialog: DialogInfo = { type: "alert", message: "Hi" };
+  tab.onNavigate = async () => ({ status: 200, dialog }) as { status?: number };
+  const r = await call("nav.goto", { url: "https://example.com/alert", snapshot: true });
+  assert.deepEqual(r.dialog, dialog);
+  assert.equal(r.snapshot, undefined);
+  assert.ok(!tab.log.some((l) => l.startsWith("snapshot")));
+});

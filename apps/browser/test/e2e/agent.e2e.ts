@@ -190,8 +190,21 @@ describe("agent Spaces", { skip: !existsSync(agbPath) && "bin/agb not built; run
     const a = await agb(app, ["goto", site.url + "/alert", "--timeout", "15s"], { cwd: work });
     assert.equal(a.status, 0, a.stderr);
     assert.match(a.stdout, /dialog: a alert dialog is waiting: "hello"/);
-    assert.match((await agb(app, ["dialog", "accept"], { cwd: work })).stdout, /ok: accepted the dialog/);
-    assert.match((await agb(app, ["dialog"], { cwd: work })).stdout, /confirm dialog: "sure\?"/);
+    const accepted = await agb(app, ["dialog", "accept"], { cwd: work });
+    assert.match(accepted.stdout, /ok: accepted the dialog/);
+    // The page opens confirm() as soon as the alert closes; on a slow machine its event can come a moment later.
+    // (A dialog the app lost track of never shows up, so waiting doesn't hide that.)
+    let listed = "";
+    await waitFor(
+      "the confirm dialog",
+      async () => /confirm dialog: "sure\?"/.test((listed = (await agb(app, ["dialog"], { cwd: work })).stdout)),
+      3000,
+    ).catch(() =>
+      assert.fail(
+        `no confirm dialog listed.\ndialog accept printed:\n${accepted.stdout}\ndialog list printed:\n${listed}\n` +
+          `app log (dialogs):\n${app.logs.filter((l) => /dialog/i.test(l)).slice(-10).join("\n")}`,
+      ),
+    );
     assert.equal((await agb(app, ["dialog", "dismiss"], { cwd: work })).status, 0);
     assert.match((await agb(app, ["text"], { cwd: work })).stdout, /after the dialogs/);
     assert.equal((await agb(app, ["goto", site.url + "/unload"], { cwd: work })).status, 0);

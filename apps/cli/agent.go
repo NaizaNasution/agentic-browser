@@ -12,8 +12,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/NaizaNasution/agentic-browser/apps/cli/internal/agentid"
 	"github.com/NaizaNasution/agentic-browser/apps/cli/internal/client"
 	"github.com/NaizaNasution/agentic-browser/apps/cli/internal/discovery"
 	"github.com/NaizaNasution/agentic-browser/apps/cli/internal/format"
@@ -34,8 +36,15 @@ func agentContext(g globals) *protocol.AgentContext {
 	cwd, _ := os.Getwd()
 	ms := g.timeout.Milliseconds()
 	ms = max(1000, min(ms, 300000))
-	return &protocol.AgentContext{Agent: g.agent, Space: g.space, Tab: g.tab, Cwd: cwd, TimeoutMs: ms}
+	agent := g.agent
+	if agent == "" {
+		agent = detectedAgent()
+	}
+	return &protocol.AgentContext{Agent: agent, Space: g.space, Tab: g.tab, Cwd: cwd, TimeoutMs: ms}
 }
+
+// detectedAgent is the agent ID found from the environment or the parent processes (§8.4), or "".
+var detectedAgent = sync.OnceValue(func() string { return agentid.Detect(os.Getenv, agentid.Parents) })
 
 // discoveryError wraps a problem reading gateway.json.
 type discoveryError struct{ err error }
@@ -380,8 +389,8 @@ func tabLine(t protocol.TabInfo) string {
 // ---------- navigation ----------
 
 func cmdGoto(g globals, args []string, stdout, stderr io.Writer) int {
-	const use = "agb goto <url> [--wait load|domcontentloaded|networkidle|none] [--strict]"
-	a, err := parseArgs(args, map[string]bool{"--wait": true, "--strict": false})
+	const use = "agb goto <url> [--snapshot] [--wait load|domcontentloaded|networkidle|none] [--strict]"
+	a, err := parseArgs(args, map[string]bool{"--wait": true, "--strict": false, "--snapshot": false})
 	if err != nil {
 		return usageErr(stderr, err.Error(), use)
 	}
@@ -392,7 +401,7 @@ func cmdGoto(g globals, args []string, stdout, stderr io.Writer) int {
 	if code != exitOK {
 		return code
 	}
-	raw, code := call(g, protocol.MethodNavGoto, protocol.GotoParams{URL: a.pos[0], Wait: wait}, stdout, stderr)
+	raw, code := call(g, protocol.MethodNavGoto, protocol.GotoParams{URL: a.pos[0], Wait: wait, Snapshot: a.has("--snapshot")}, stdout, stderr)
 	if code != exitOK {
 		return code
 	}
@@ -401,8 +410,8 @@ func cmdGoto(g globals, args []string, stdout, stderr io.Writer) int {
 
 func cmdHistory(action string) func(g globals, args []string, stdout, stderr io.Writer) int {
 	return func(g globals, args []string, stdout, stderr io.Writer) int {
-		use := "agb " + action + " [--wait load|domcontentloaded|networkidle|none]"
-		a, err := parseArgs(args, map[string]bool{"--wait": true})
+		use := "agb " + action + " [--snapshot] [--wait load|domcontentloaded|networkidle|none]"
+		a, err := parseArgs(args, map[string]bool{"--wait": true, "--snapshot": false})
 		if err != nil {
 			return usageErr(stderr, err.Error(), use)
 		}
@@ -414,7 +423,7 @@ func cmdHistory(action string) func(g globals, args []string, stdout, stderr io.
 			return code
 		}
 		method := map[string]string{"back": protocol.MethodNavBack, "forward": protocol.MethodNavForward, "reload": protocol.MethodNavReload}[action]
-		raw, code := call(g, method, protocol.HistoryParams{Wait: wait}, stdout, stderr)
+		raw, code := call(g, method, protocol.HistoryParams{Wait: wait, Snapshot: a.has("--snapshot")}, stdout, stderr)
 		if code != exitOK {
 			return code
 		}
@@ -445,6 +454,9 @@ func printNav(g globals, raw json.RawMessage, stdout, stderr io.Writer, action s
 		}
 		if r.Dialog != nil {
 			fmt.Fprintf(stdout, "dialog: a %s dialog is waiting: %s\nhint: answer it with `agb dialog accept` or `agb dialog dismiss`\n", r.Dialog.Type, strconv.Quote(r.Dialog.Message))
+		}
+		if r.Snapshot != nil {
+			printSnapshotBody(stdout, r.Snapshot)
 		}
 	}
 	if failed {

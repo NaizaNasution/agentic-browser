@@ -216,6 +216,12 @@ class ElectronTab implements TabBackend, ActorHost {
   private navStarts = 0;
   private navCommits = 0;
   private dialog: PendingDialog | undefined;
+  /**
+   * Dialogs this tab answered itself whose Page.javascriptDialogClosed hasn't arrived yet. That event can come
+   * after the next dialog's Page.javascriptDialogOpening (an alert() followed at once by a confirm(), on a slow
+   * machine), so it must not clear the newer dialog.
+   */
+  private answeredDialogs = 0;
   private readonly dialogListeners = new Set<(d: DialogInfo) => void>();
   private readonly chooserListeners = new Set<(e: { backendNodeId: number; session: string }) => void>();
   private readonly actor: Actor;
@@ -285,7 +291,9 @@ class ElectronTab implements TabBackend, ActorHost {
       this.refs.reset();
       this.baseline = undefined;
       this.worlds.clear();
-      this.dialog = undefined;
+      // Dialog state is left alone: Electron can report this navigation after the new page's first alert() has
+      // already been reported (seen on a slow CI runner), and clearing here lost that dialog. A navigation can't
+      // happen while a dialog blocks the page anyway, and dialogs that do close send Page.javascriptDialogClosed.
     });
     this.wc.on("did-frame-navigate", () => this.worlds.clear());
     this.wc.on("destroyed", () => {
@@ -306,6 +314,16 @@ class ElectronTab implements TabBackend, ActorHost {
       if (!this.disposed) this.log(`space ${this.spec.spaceId}: debugger detached (${reason})`);
     });
     await this.enableSession("");
+    await this.pinViewport();
+  }
+
+  /**
+   * Sets the page's viewport to the Space's (SPEC §7.3) through device emulation, whatever size the OS lets the
+   * window be: Windows shrinks a window that is bigger than the screen (1280x800 became 1008x681 on a 1024x768
+   * CI runner). capturePage and CDP input both follow the emulated size, even beyond the real window.
+   */
+  private pinViewport(height = this.spec.viewport.height): Promise<unknown> {
+    return this.cdp("Emulation.setDeviceMetricsOverride", { width: this.spec.viewport.width, height, deviceScaleFactor: 0, mobile: false });
   }
 
   private async enableSession(session: string): Promise<void> {
@@ -374,7 +392,7 @@ class ElectronTab implements TabBackend, ActorHost {
     const fullHeight = Math.ceil(metrics.cssContentSize?.height ?? this.spec.viewport.height);
     const maxHeight = Math.floor(MAX_FULL_PAGE_HEIGHT / Math.max(1, dpr || 1));
     const height = Math.max(this.spec.viewport.height, Math.min(fullHeight, maxHeight));
-    await this.cdp("Emulation.setDeviceMetricsOverride", { width: this.spec.viewport.width, height, deviceScaleFactor: 0, mobile: false });
+    await this.pinViewport(height);
     try {
       await this.evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))", deadline, true);
       const img = await this.until(deadline, "capture", this.wc.capturePage(undefined, { stayHidden: true }));
@@ -383,7 +401,7 @@ class ElectronTab implements TabBackend, ActorHost {
       const data = opts.format === "jpeg" ? img.toJPEG(opts.quality) : img.toPNG();
       return { data, width: size.width, height: size.height, truncated: fullHeight > height };
     } finally {
-      await this.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
+      await this.pinViewport().catch(() => {}); // back to the Space's viewport (clearing would fall back to the window's size)
     }
   }
 
@@ -691,7 +709,13 @@ class ElectronTab implements TabBackend, ActorHost {
         const d = this.dialog;
         if (!d) throw new AgentError("E_INVALID_PARAMS", "no dialog is open in this tab", "dialogs show up in action results and in `agb dialog list`");
         this.dialog = undefined;
-        await this.cdp("Page.handleJavaScriptDialog", { accept: req.accept, ...(req.text !== undefined ? { promptText: req.text } : {}) }, d.session);
+        this.answeredDialogs++;
+        try {
+          await this.cdp("Page.handleJavaScriptDialog", { accept: req.accept, ...(req.text !== undefined ? { promptText: req.text } : {}) }, d.session);
+        } catch (e) {
+          this.answeredDialogs = Math.max(0, this.answeredDialogs - 1); // no close event will come
+          throw e;
+        }
         out.note = `${req.accept ? "accepted" : "dismissed"} ${d.type} "${d.message.slice(0, 80)}"`;
         return undefined;
       }
@@ -1005,7 +1029,10 @@ class ElectronTab implements TabBackend, ActorHost {
         const message = String(params.message ?? "");
         if (params.type === "beforeunload") {
           // "Leave site?" never blocks an agent (policy can change this later, §11.5).
-          void this.cdp("Page.handleJavaScriptDialog", { accept: true }, session).catch(() => {});
+          this.answeredDialogs++;
+          void this.cdp("Page.handleJavaScriptDialog", { accept: true }, session).catch(() => {
+            this.answeredDialogs = Math.max(0, this.answeredDialogs - 1);
+          });
           break;
         }
         this.dialog = { type: params.type, message, ...(params.type === "prompt" ? { defaultPrompt: String(params.defaultPrompt ?? "") } : {}), session };
@@ -1014,7 +1041,12 @@ class ElectronTab implements TabBackend, ActorHost {
         break;
       }
       case "Page.javascriptDialogClosed":
-        this.dialog = undefined;
+        // The close of a dialog this tab answered: the dialog is already cleared, and a newer one may be open.
+        if (this.answeredDialogs > 0) this.answeredDialogs--;
+        else {
+          this.log(`space ${this.spec.spaceId}: ${this.dialog?.type ?? "a"} dialog closed by the page or browser`);
+          this.dialog = undefined; // closed some other way (the page went away)
+        }
         break;
       case "Page.fileChooserOpened":
         if (params.backendNodeId !== undefined) for (const l of this.chooserListeners) l({ backendNodeId: params.backendNodeId, session });

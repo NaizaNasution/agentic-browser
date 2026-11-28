@@ -34,7 +34,11 @@ describe("one running app", () => {
     app = await App.launch({ args: [site.url + "/opener"] });
     shell = await app.shell();
     opener = await app.page((u) => u.endsWith("/opener"), "opener page");
-    await waitFor("opener loaded", () => opener.eval("document.readyState === 'complete'"));
+    // The DevTools target reports the URL before the page has committed, so readyState alone can be the previous
+    // (blank) document's; wait for the opener's own content (D-08 clicks #pop).
+    await waitFor("opener loaded", () =>
+      opener.eval("location.pathname === '/opener' && document.readyState === 'complete' && !!document.getElementById('pop')"),
+    );
   });
 
   after(() => {

@@ -37,6 +37,16 @@ export interface HelloResult {
 
 export type StatusParams = Record<string, never>;
 
+export type GuideParams = Record<string, never>;
+
+/** The skill guide for this app version (§13.4), printed by agb skill. */
+export interface GuideResult {
+  appVersion: string;
+  protocol: string;
+  /** Markdown, ending with the line [agb:skill] end of guide */
+  text: string;
+}
+
 export interface StatusResult {
   appVersion: string;
   electronVersion?: string;
@@ -169,11 +179,15 @@ export interface GotoParams {
   url: string;
   /** When to return (default load) */
   wait?: "load" | "domcontentloaded" | "networkidle" | "none";
+  /** Return a fresh interactive snapshot with the result */
+  snapshot?: boolean;
 }
 
 export interface HistoryParams {
   /** When to return (default load) */
   wait?: "load" | "domcontentloaded" | "networkidle" | "none";
+  /** Return a fresh interactive snapshot with the result */
+  snapshot?: boolean;
 }
 
 export interface NavResult {
@@ -185,6 +199,8 @@ export interface NavResult {
   durationMs: number;
   /** A dialog opened while the page loaded and is waiting (use dialog accept or dismiss) */
   dialog?: DialogInfo;
+  /** Present when snapshot was requested and no dialog is waiting */
+  snapshot?: SnapshotResult;
 }
 
 export interface TextParams {
@@ -484,6 +500,8 @@ export interface Methods {
   "gateway.hello": { params: HelloParams; result: HelloResult };
   /** Gateway and browser status. */
   "gateway.status": { params: StatusParams; result: StatusResult };
+  /** The skill guide for this app version (§13.4). */
+  "gateway.guide": { params: GuideParams; result: GuideResult };
   /** Create an agent Space. */
   "space.create": { params: SpaceCreateParams; result: SpaceInfo };
   /** List the calling agent's Spaces. */
@@ -554,7 +572,7 @@ export interface Methods {
   "download.wait": { params: DownloadWaitParams; result: DownloadWaitResult };
 }
 export type MethodName = keyof Methods;
-export const METHOD_NAMES: MethodName[] = ["gateway.hello","gateway.status","space.create","space.list","space.info","space.close","space.show","space.hide","tab.open","tab.list","tab.info","tab.select","tab.close","nav.goto","nav.back","nav.forward","nav.reload","page.text","page.capture","page.snapshot","page.click","page.hover","page.fill","page.type","page.press","page.select","page.check","page.uncheck","page.scroll","page.upload","wait.for","dialog.list","dialog.accept","dialog.dismiss","download.list","download.wait"];
+export const METHOD_NAMES: MethodName[] = ["gateway.hello","gateway.status","gateway.guide","space.create","space.list","space.info","space.close","space.show","space.hide","tab.open","tab.list","tab.info","tab.select","tab.close","nav.goto","nav.back","nav.forward","nav.reload","page.text","page.capture","page.snapshot","page.click","page.hover","page.fill","page.type","page.press","page.select","page.check","page.uncheck","page.scroll","page.upload","wait.for","dialog.list","dialog.accept","dialog.dismiss","download.list","download.wait"];
 
 /** A type from the schema, for runtime validation. */
 export interface TypeSchema {
@@ -646,6 +664,29 @@ export const TYPE_SCHEMAS: Record<string, TypeSchema> = {
   "StatusParams": {
     "type": "object",
     "properties": {}
+  },
+  "GuideParams": {
+    "type": "object",
+    "properties": {}
+  },
+  "GuideResult": {
+    "type": "object",
+    "required": [
+      "appVersion",
+      "protocol",
+      "text"
+    ],
+    "properties": {
+      "appVersion": {
+        "type": "string"
+      },
+      "protocol": {
+        "type": "string"
+      },
+      "text": {
+        "type": "string"
+      }
+    }
   },
   "StatusResult": {
     "type": "object",
@@ -1018,6 +1059,9 @@ export const TYPE_SCHEMAS: Record<string, TypeSchema> = {
           "networkidle",
           "none"
         ]
+      },
+      "snapshot": {
+        "type": "boolean"
       }
     }
   },
@@ -1032,6 +1076,9 @@ export const TYPE_SCHEMAS: Record<string, TypeSchema> = {
           "networkidle",
           "none"
         ]
+      },
+      "snapshot": {
+        "type": "boolean"
       }
     }
   },
@@ -1056,6 +1103,9 @@ export const TYPE_SCHEMAS: Record<string, TypeSchema> = {
       },
       "dialog": {
         "$ref": "DialogInfo"
+      },
+      "snapshot": {
+        "$ref": "SnapshotResult"
       }
     }
   },
@@ -1729,6 +1779,7 @@ export const TYPE_SCHEMAS: Record<string, TypeSchema> = {
 export const METHOD_PARAMS: Record<MethodName, string> = {
   "gateway.hello": "HelloParams",
   "gateway.status": "StatusParams",
+  "gateway.guide": "GuideParams",
   "space.create": "SpaceCreateParams",
   "space.list": "SpaceListParams",
   "space.info": "SpaceRefParams",

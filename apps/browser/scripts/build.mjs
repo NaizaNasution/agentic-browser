@@ -22,6 +22,7 @@ const nodeCommon = {
   sourcemap: true,
   external: ["electron"],
   alias,
+  loader: { ".md": "text" }, // the skill guide template (src/shared/skill-guide.ts)
   logLevel: "warning",
 };
 

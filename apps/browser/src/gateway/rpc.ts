@@ -8,6 +8,7 @@ import {
   PROTOCOL_VERSION,
   type AgentContext,
   type ErrorName,
+  type GuideResult,
   type HelloParams,
   type HelloResult,
   type MethodName,
@@ -16,6 +17,7 @@ import {
   type StatusResult,
 } from "@agb/protocol";
 import type { AppInfo, ShellCounts } from "../shared/gateway-ipc";
+import { renderGuide } from "../shared/skill-guide";
 import { validate } from "./validate";
 
 /** Default and maximum command timeouts (SPEC §8.6). */
@@ -93,7 +95,7 @@ export function createDispatcher(deps: GatewayDeps) {
 
   const agentMethods = Object.fromEntries(
     METHOD_NAMES.filter((m) => !m.startsWith("gateway.")).map((m) => [m, forward(m)]),
-  ) as { [M in Exclude<MethodName, "gateway.hello" | "gateway.status">]: Handler<M> };
+  ) as { [M in Exclude<MethodName, `gateway.${string}`>]: Handler<M> };
 
   const handlers: { [M in MethodName]: Handler<M> } = {
     ...agentMethods,
@@ -112,6 +114,11 @@ export function createDispatcher(deps: GatewayDeps) {
       }
       conn.authed = true;
       return { appVersion: deps.appInfo.appVersion, protocol: PROTOCOL_VERSION, serverTime: new Date().toISOString() };
+    },
+
+    "gateway.guide": async (): Promise<GuideResult> => {
+      const vars = { appVersion: deps.appInfo.appVersion, protocol: PROTOCOL_VERSION };
+      return { ...vars, text: renderGuide(vars) };
     },
 
     "gateway.status": async (): Promise<StatusResult> => {
