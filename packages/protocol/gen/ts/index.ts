@@ -183,6 +183,8 @@ export interface NavResult {
   /** For back and forward: false if there was no history entry */
   moved?: boolean;
   durationMs: number;
+  /** A dialog opened while the page loaded and is waiting (use dialog accept or dismiss) */
+  dialog?: DialogInfo;
 }
 
 export interface TextParams {
@@ -221,6 +223,219 @@ export interface CaptureResult {
   truncated: boolean;
 }
 
+export interface SnapshotParams {
+  /** Default interactive (§10.5) */
+  mode?: "interactive" | "full";
+  /** Only this element's subtree */
+  scope?: string;
+  /** Token budget (default 4000) */
+  maxTokens?: number;
+  /** Only what changed since this tab's last snapshot (§10.6) */
+  diff?: boolean;
+}
+
+export interface ScrollInfo {
+  y: number;
+  maxY: number;
+  viewportHeight: number;
+}
+
+export interface SnapshotResult {
+  at: Location;
+  /** The snapshot (§10.2). Untrusted page content. Empty for a diff. */
+  text: string;
+  refs: number;
+  tokens: number;
+  /** Text left out because people can't see it */
+  hiddenOmitted: number;
+  /** Sections collapsed to fit the token budget */
+  collapsed: number;
+  scroll: ScrollInfo;
+  /** With diff: lines like `+ alert "…" @e9` */
+  changes?: string[];
+  note?: string;
+}
+
+export interface ActionTarget {
+  ref: string;
+  role: string;
+  name?: string;
+}
+
+export interface DialogInfo {
+  /** alert, confirm, or prompt */
+  type: string;
+  /** Untrusted page content */
+  message: string;
+  defaultPrompt?: string;
+}
+
+export interface DownloadInfo {
+  id: string;
+  tab?: string;
+  url: string;
+  filename: string;
+  /** In the Space's download folder (§15.6) */
+  path: string;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
+  bytes: number;
+  totalBytes?: number;
+}
+
+export interface ActionResult {
+  at: Location;
+  action: string;
+  target?: ActionTarget;
+  /** e.g. `@e12 re-resolved` */
+  note?: string;
+  /** The action started a navigation; refs were reset */
+  navigated?: boolean;
+  /** What changed on the page (§11.4) */
+  changes: string[];
+  /** A dialog opened and is waiting (use dialog accept or dismiss) */
+  dialog?: DialogInfo;
+  /** Tabs the page opened during the action */
+  opened?: string[];
+  downloads?: DownloadInfo[];
+  /** The page opened a file chooser (use upload) */
+  fileChooser?: boolean;
+  /** The field's value afterwards, for fill and select (redacted for secrets) */
+  value?: string;
+  scroll?: ScrollInfo;
+  snapshot?: SnapshotResult;
+  durationMs: number;
+}
+
+export interface ClickParams {
+  /** Element ref from a snapshot, e.g. @e12 */
+  ref: string;
+  button?: "left" | "right" | "middle";
+  count?: number;
+  modifiers?: "Alt" | "Control" | "Meta" | "Shift"[];
+  /** Make a tab the click opens the active tab */
+  follow?: boolean;
+  /** Return a fresh interactive snapshot with the result */
+  snapshot?: boolean;
+}
+
+export interface RefParams {
+  /** Element ref from a snapshot, e.g. @e12 */
+  ref: string;
+  /** Return a fresh interactive snapshot with the result */
+  snapshot?: boolean;
+}
+
+export interface FillParams {
+  /** Element ref from a snapshot, e.g. @e12 */
+  ref: string;
+  text: string;
+  /** Press Enter afterwards */
+  submit?: boolean;
+  /** Delete the old text first (default true) */
+  clear?: boolean;
+  /** Set the value without typing (escape hatch) */
+  direct?: boolean;
+  /** Return a fresh interactive snapshot with the result */
+  snapshot?: boolean;
+}
+
+export interface TypeParams {
+  text: string;
+  /** Click this element first; otherwise type into the focused element */
+  ref?: string;
+  /** Return a fresh interactive snapshot with the result */
+  snapshot?: boolean;
+}
+
+export interface PressParams {
+  /** e.g. Enter, Escape, Control+A, Shift+Tab */
+  keys: string;
+  /** Focus this element first */
+  ref?: string;
+  /** Return a fresh interactive snapshot with the result */
+  snapshot?: boolean;
+}
+
+export interface SelectParams {
+  /** Element ref from a snapshot, e.g. @e12 */
+  ref: string;
+  /** Option labels or values */
+  values: string[];
+  /** Return a fresh interactive snapshot with the result */
+  snapshot?: boolean;
+}
+
+export interface ScrollParams {
+  /** Scroll this container (or scroll it into view with to=ref) */
+  ref?: string;
+  dx?: number;
+  dy?: number;
+  page?: "up" | "down";
+  /** top, bottom, or a ref to bring into view */
+  to?: string;
+  /** Return a fresh interactive snapshot with the result */
+  snapshot?: boolean;
+}
+
+export interface UploadParams {
+  /** Element ref from a snapshot, e.g. @e12 */
+  ref: string;
+  /** Absolute paths */
+  files: string[];
+  /** Return a fresh interactive snapshot with the result */
+  snapshot?: boolean;
+}
+
+export interface WaitParams {
+  text?: string;
+  /** Element ref from a snapshot, e.g. @e12 */
+  ref?: string;
+  /** Wait for the text or ref to disappear */
+  gone?: boolean;
+  /** Glob: * matches anything */
+  url?: string;
+  load?: boolean;
+  networkidle?: boolean;
+  ms?: number;
+}
+
+export interface WaitResult {
+  at: Location;
+  matched: string;
+  waitedMs: number;
+}
+
+export type DialogListParams = Record<string, never>;
+
+export interface DialogListResult {
+  at: Location;
+  dialog?: DialogInfo;
+}
+
+export interface DialogParams {
+  /** Answer for a prompt() dialog */
+  text?: string;
+  /** Return a fresh interactive snapshot with the result */
+  snapshot?: boolean;
+}
+
+export type DownloadListParams = Record<string, never>;
+
+export interface DownloadListResult {
+  space: string;
+  downloads: DownloadInfo[];
+}
+
+export interface DownloadWaitParams {
+  /** Default: the most recent download */
+  id?: string;
+}
+
+export interface DownloadWaitResult {
+  space: string;
+  download: DownloadInfo;
+}
+
 export const ErrorCodes = {
   E_PARSE: -32700,
   E_INVALID_REQUEST: -32600,
@@ -236,6 +451,10 @@ export const ErrorCodes = {
   E_LIMIT: -32014,
   E_DENIED: -32015,
   E_UNSUPPORTED: -32016,
+  E_NO_REF: -32017,
+  E_STALE_REF: -32018,
+  E_NOT_ACTIONABLE: -32019,
+  E_DIALOG_OPEN: -32020,
 } as const;
 export type ErrorName = keyof typeof ErrorCodes;
 
@@ -254,6 +473,10 @@ export const ErrorMessages: Record<ErrorName, string> = {
   E_LIMIT: "Space or tab limit reached",
   E_DENIED: "Denied by policy",
   E_UNSUPPORTED: "Not supported in this version",
+  E_NO_REF: "No element with that ref",
+  E_STALE_REF: "The element for that ref is gone",
+  E_NOT_ACTIONABLE: "The element can't be acted on",
+  E_DIALOG_OPEN: "A JavaScript dialog is open",
 };
 
 export interface Methods {
@@ -295,9 +518,43 @@ export interface Methods {
   "page.text": { params: TextParams; result: TextResult };
   /** Screenshot of the viewport or the full page. */
   "page.capture": { params: CaptureParams; result: CaptureResult };
+  /** Text snapshot of the page with element refs. */
+  "page.snapshot": { params: SnapshotParams; result: SnapshotResult };
+  /** Click an element. */
+  "page.click": { params: ClickParams; result: ActionResult };
+  /** Move the pointer over an element. */
+  "page.hover": { params: RefParams; result: ActionResult };
+  /** Replace the text in a field by typing. */
+  "page.fill": { params: FillParams; result: ActionResult };
+  /** Type text key by key. */
+  "page.type": { params: TypeParams; result: ActionResult };
+  /** Press a key or key combination. */
+  "page.press": { params: PressParams; result: ActionResult };
+  /** Choose options in a select or listbox. */
+  "page.select": { params: SelectParams; result: ActionResult };
+  /** Check a checkbox, radio, or switch. */
+  "page.check": { params: RefParams; result: ActionResult };
+  /** Uncheck a checkbox or switch. */
+  "page.uncheck": { params: RefParams; result: ActionResult };
+  /** Scroll the page or a container with the mouse wheel. */
+  "page.scroll": { params: ScrollParams; result: ActionResult };
+  /** Set files on a file input. */
+  "page.upload": { params: UploadParams; result: ActionResult };
+  /** Wait for text, an element, a URL, load, network idle, or a time. */
+  "wait.for": { params: WaitParams; result: WaitResult };
+  /** The JavaScript dialog waiting in the tab, if any. */
+  "dialog.list": { params: DialogListParams; result: DialogListResult };
+  /** Accept the open dialog (OK). */
+  "dialog.accept": { params: DialogParams; result: ActionResult };
+  /** Dismiss the open dialog (Cancel). */
+  "dialog.dismiss": { params: DialogParams; result: ActionResult };
+  /** Downloads in the Space. */
+  "download.list": { params: DownloadListParams; result: DownloadListResult };
+  /** Wait for a download to finish. */
+  "download.wait": { params: DownloadWaitParams; result: DownloadWaitResult };
 }
 export type MethodName = keyof Methods;
-export const METHOD_NAMES: MethodName[] = ["gateway.hello","gateway.status","space.create","space.list","space.info","space.close","space.show","space.hide","tab.open","tab.list","tab.info","tab.select","tab.close","nav.goto","nav.back","nav.forward","nav.reload","page.text","page.capture"];
+export const METHOD_NAMES: MethodName[] = ["gateway.hello","gateway.status","space.create","space.list","space.info","space.close","space.show","space.hide","tab.open","tab.list","tab.info","tab.select","tab.close","nav.goto","nav.back","nav.forward","nav.reload","page.text","page.capture","page.snapshot","page.click","page.hover","page.fill","page.type","page.press","page.select","page.check","page.uncheck","page.scroll","page.upload","wait.for","dialog.list","dialog.accept","dialog.dismiss","download.list","download.wait"];
 
 /** A type from the schema, for runtime validation. */
 export interface TypeSchema {
@@ -796,6 +1053,9 @@ export const TYPE_SCHEMAS: Record<string, TypeSchema> = {
       },
       "durationMs": {
         "type": "integer"
+      },
+      "dialog": {
+        "$ref": "DialogInfo"
       }
     }
   },
@@ -890,6 +1150,578 @@ export const TYPE_SCHEMAS: Record<string, TypeSchema> = {
         "type": "boolean"
       }
     }
+  },
+  "SnapshotParams": {
+    "type": "object",
+    "properties": {
+      "mode": {
+        "type": "string",
+        "enum": [
+          "interactive",
+          "full"
+        ]
+      },
+      "scope": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16
+      },
+      "maxTokens": {
+        "type": "integer",
+        "minimum": 200,
+        "maximum": 100000
+      },
+      "diff": {
+        "type": "boolean"
+      }
+    }
+  },
+  "ScrollInfo": {
+    "type": "object",
+    "required": [
+      "y",
+      "maxY",
+      "viewportHeight"
+    ],
+    "properties": {
+      "y": {
+        "type": "integer"
+      },
+      "maxY": {
+        "type": "integer"
+      },
+      "viewportHeight": {
+        "type": "integer"
+      }
+    }
+  },
+  "SnapshotResult": {
+    "type": "object",
+    "required": [
+      "at",
+      "text",
+      "refs",
+      "tokens",
+      "hiddenOmitted",
+      "collapsed",
+      "scroll"
+    ],
+    "properties": {
+      "at": {
+        "$ref": "Location"
+      },
+      "text": {
+        "type": "string"
+      },
+      "refs": {
+        "type": "integer"
+      },
+      "tokens": {
+        "type": "integer"
+      },
+      "hiddenOmitted": {
+        "type": "integer"
+      },
+      "collapsed": {
+        "type": "integer"
+      },
+      "scroll": {
+        "$ref": "ScrollInfo"
+      },
+      "changes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "note": {
+        "type": "string"
+      }
+    }
+  },
+  "ActionTarget": {
+    "type": "object",
+    "required": [
+      "ref",
+      "role"
+    ],
+    "properties": {
+      "ref": {
+        "type": "string"
+      },
+      "role": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      }
+    }
+  },
+  "DialogInfo": {
+    "type": "object",
+    "required": [
+      "type",
+      "message"
+    ],
+    "properties": {
+      "type": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      },
+      "defaultPrompt": {
+        "type": "string"
+      }
+    }
+  },
+  "DownloadInfo": {
+    "type": "object",
+    "required": [
+      "id",
+      "url",
+      "filename",
+      "path",
+      "state",
+      "bytes"
+    ],
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "tab": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      },
+      "filename": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string",
+        "enum": [
+          "progressing",
+          "completed",
+          "cancelled",
+          "interrupted"
+        ]
+      },
+      "bytes": {
+        "type": "integer"
+      },
+      "totalBytes": {
+        "type": "integer"
+      }
+    }
+  },
+  "ActionResult": {
+    "type": "object",
+    "required": [
+      "at",
+      "action",
+      "changes",
+      "durationMs"
+    ],
+    "properties": {
+      "at": {
+        "$ref": "Location"
+      },
+      "action": {
+        "type": "string"
+      },
+      "target": {
+        "$ref": "ActionTarget"
+      },
+      "note": {
+        "type": "string"
+      },
+      "navigated": {
+        "type": "boolean"
+      },
+      "changes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "dialog": {
+        "$ref": "DialogInfo"
+      },
+      "opened": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "downloads": {
+        "type": "array",
+        "items": {
+          "$ref": "DownloadInfo"
+        }
+      },
+      "fileChooser": {
+        "type": "boolean"
+      },
+      "value": {
+        "type": "string"
+      },
+      "scroll": {
+        "$ref": "ScrollInfo"
+      },
+      "snapshot": {
+        "$ref": "SnapshotResult"
+      },
+      "durationMs": {
+        "type": "integer"
+      }
+    }
+  },
+  "ClickParams": {
+    "type": "object",
+    "required": [
+      "ref"
+    ],
+    "properties": {
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16
+      },
+      "button": {
+        "type": "string",
+        "enum": [
+          "left",
+          "right",
+          "middle"
+        ]
+      },
+      "count": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3
+      },
+      "modifiers": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "Alt",
+            "Control",
+            "Meta",
+            "Shift"
+          ]
+        }
+      },
+      "follow": {
+        "type": "boolean"
+      },
+      "snapshot": {
+        "type": "boolean"
+      }
+    }
+  },
+  "RefParams": {
+    "type": "object",
+    "required": [
+      "ref"
+    ],
+    "properties": {
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16
+      },
+      "snapshot": {
+        "type": "boolean"
+      }
+    }
+  },
+  "FillParams": {
+    "type": "object",
+    "required": [
+      "ref",
+      "text"
+    ],
+    "properties": {
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16
+      },
+      "text": {
+        "type": "string",
+        "maxLength": 100000
+      },
+      "submit": {
+        "type": "boolean"
+      },
+      "clear": {
+        "type": "boolean"
+      },
+      "direct": {
+        "type": "boolean"
+      },
+      "snapshot": {
+        "type": "boolean"
+      }
+    }
+  },
+  "TypeParams": {
+    "type": "object",
+    "required": [
+      "text"
+    ],
+    "properties": {
+      "text": {
+        "type": "string",
+        "maxLength": 100000
+      },
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16
+      },
+      "snapshot": {
+        "type": "boolean"
+      }
+    }
+  },
+  "PressParams": {
+    "type": "object",
+    "required": [
+      "keys"
+    ],
+    "properties": {
+      "keys": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16
+      },
+      "snapshot": {
+        "type": "boolean"
+      }
+    }
+  },
+  "SelectParams": {
+    "type": "object",
+    "required": [
+      "ref",
+      "values"
+    ],
+    "properties": {
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16
+      },
+      "values": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "snapshot": {
+        "type": "boolean"
+      }
+    }
+  },
+  "ScrollParams": {
+    "type": "object",
+    "properties": {
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16
+      },
+      "dx": {
+        "type": "integer",
+        "minimum": -100000,
+        "maximum": 100000
+      },
+      "dy": {
+        "type": "integer",
+        "minimum": -100000,
+        "maximum": 100000
+      },
+      "page": {
+        "type": "string",
+        "enum": [
+          "up",
+          "down"
+        ]
+      },
+      "to": {
+        "type": "string",
+        "maxLength": 16
+      },
+      "snapshot": {
+        "type": "boolean"
+      }
+    }
+  },
+  "UploadParams": {
+    "type": "object",
+    "required": [
+      "ref",
+      "files"
+    ],
+    "properties": {
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16
+      },
+      "files": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "snapshot": {
+        "type": "boolean"
+      }
+    }
+  },
+  "WaitParams": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      },
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16
+      },
+      "gone": {
+        "type": "boolean"
+      },
+      "url": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      },
+      "load": {
+        "type": "boolean"
+      },
+      "networkidle": {
+        "type": "boolean"
+      },
+      "ms": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 300000
+      }
+    }
+  },
+  "WaitResult": {
+    "type": "object",
+    "required": [
+      "at",
+      "matched",
+      "waitedMs"
+    ],
+    "properties": {
+      "at": {
+        "$ref": "Location"
+      },
+      "matched": {
+        "type": "string"
+      },
+      "waitedMs": {
+        "type": "integer"
+      }
+    }
+  },
+  "DialogListParams": {
+    "type": "object",
+    "properties": {}
+  },
+  "DialogListResult": {
+    "type": "object",
+    "required": [
+      "at"
+    ],
+    "properties": {
+      "at": {
+        "$ref": "Location"
+      },
+      "dialog": {
+        "$ref": "DialogInfo"
+      }
+    }
+  },
+  "DialogParams": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "maxLength": 10000
+      },
+      "snapshot": {
+        "type": "boolean"
+      }
+    }
+  },
+  "DownloadListParams": {
+    "type": "object",
+    "properties": {}
+  },
+  "DownloadListResult": {
+    "type": "object",
+    "required": [
+      "space",
+      "downloads"
+    ],
+    "properties": {
+      "space": {
+        "type": "string"
+      },
+      "downloads": {
+        "type": "array",
+        "items": {
+          "$ref": "DownloadInfo"
+        }
+      }
+    }
+  },
+  "DownloadWaitParams": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "maxLength": 16
+      }
+    }
+  },
+  "DownloadWaitResult": {
+    "type": "object",
+    "required": [
+      "space",
+      "download"
+    ],
+    "properties": {
+      "space": {
+        "type": "string"
+      },
+      "download": {
+        "$ref": "DownloadInfo"
+      }
+    }
   }
 };
 
@@ -913,7 +1745,24 @@ export const METHOD_PARAMS: Record<MethodName, string> = {
   "nav.forward": "HistoryParams",
   "nav.reload": "HistoryParams",
   "page.text": "TextParams",
-  "page.capture": "CaptureParams"
+  "page.capture": "CaptureParams",
+  "page.snapshot": "SnapshotParams",
+  "page.click": "ClickParams",
+  "page.hover": "RefParams",
+  "page.fill": "FillParams",
+  "page.type": "TypeParams",
+  "page.press": "PressParams",
+  "page.select": "SelectParams",
+  "page.check": "RefParams",
+  "page.uncheck": "RefParams",
+  "page.scroll": "ScrollParams",
+  "page.upload": "UploadParams",
+  "wait.for": "WaitParams",
+  "dialog.list": "DialogListParams",
+  "dialog.accept": "DialogParams",
+  "dialog.dismiss": "DialogParams",
+  "download.list": "DownloadListParams",
+  "download.wait": "DownloadWaitParams"
 };
 
 export interface RpcRequest<M extends MethodName = MethodName> {

@@ -10,6 +10,10 @@ import { installMenu } from "./menu";
 import { HUMAN_PARTITION, TabManager } from "./tabs";
 
 app.setName("Agentic Browser");
+// Agent tab windows live off-screen (agent/electron-driver.ts). Native occlusion tracking would mark them as
+// covered and throttle them to a standstill, so it is off. The cost: the human's windows also keep rendering
+// while other apps cover them (minimized windows are still throttled).
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
 
 // `--smoke-test <dir>`: start with a throwaway profile, open two tabs, save screenshots and state, quit.
 const smokeIdx = process.argv.indexOf("--smoke-test");
@@ -26,8 +30,10 @@ if (!app.requestSingleInstanceLock()) {
   let shellView: WebContentsView | null = null;
   let tabs: TabManager | null = null;
   const agentLog = (m: string) => console.log(`[agent] ${m}`);
-  // Agent Spaces (SPEC §7). Screenshots go to the OS temp folder (SPEC §15.6).
-  const agents = new AgentService(new ElectronAgentDriver(agentLog), {
+  // Agent Spaces (SPEC §7). Screenshots go to the OS temp folder; downloads to
+  // ~/Downloads/Agentic Browser/<agent>/<space>/ (SPEC §15.6). AGB_DOWNLOAD_DIR overrides the root (tests).
+  const downloadsRoot = process.env.AGB_DOWNLOAD_DIR || join(app.getPath("downloads"), "Agentic Browser");
+  const agents = new AgentService(new ElectronAgentDriver({ log: agentLog, downloadsRoot }), {
     captureDir: join(tmpdir(), "agentic-browser", "captures"),
     log: agentLog,
   });

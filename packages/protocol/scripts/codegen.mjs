@@ -133,7 +133,9 @@ for (const [name, t] of Object.entries(schema.types)) {
   for (const [k, v] of Object.entries(t.properties ?? {})) {
     const omit = req.includes(k) ? "" : ",omitempty";
     const comment = v.description ? ` // ${v.description}` : "";
-    go += `\t${goField(k)} ${goType(v)} \`json:"${k}${omit}"\`${comment}\n`;
+    // Optional nested objects are pointers, so "absent" (nil) differs from "empty".
+    const type = v.$ref && !req.includes(k) ? `*${goType(v)}` : goType(v);
+    go += `\t${goField(k)} ${type} \`json:"${k}${omit}"\`${comment}\n`;
   }
   go += `}\n\n`;
 }

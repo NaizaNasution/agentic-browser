@@ -331,11 +331,11 @@ func cmdTab(g globals, args []string, stdout, stderr io.Writer) int {
 		if code := decode(raw, &r, g, stdout, stderr); code != exitOK {
 			return code
 		}
-		if r.At.Tab != "" {
-			header(g, stdout, r.At)
+		if r.At != nil && r.At.Tab != "" {
+			header(g, stdout, *r.At)
 		}
 		fmt.Fprintf(stdout, "closed: %s\n", r.Closed)
-		if r.At.Tab == "" {
+		if r.At == nil || r.At.Tab == "" {
 			fmt.Fprintf(stdout, "Space %s has no tabs left\n", r.Space)
 		}
 		return exitOK
@@ -442,6 +442,9 @@ func printNav(g globals, raw json.RawMessage, stdout, stderr io.Writer, action s
 		}
 		if r.Status >= 400 && !failed {
 			fmt.Fprintf(stdout, "warning: the server answered HTTP %d\n", r.Status)
+		}
+		if r.Dialog != nil {
+			fmt.Fprintf(stdout, "dialog: a %s dialog is waiting: %s\nhint: answer it with `agb dialog accept` or `agb dialog dismiss`\n", r.Dialog.Type, strconv.Quote(r.Dialog.Message))
 		}
 	}
 	if failed {

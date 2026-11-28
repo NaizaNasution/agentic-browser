@@ -120,8 +120,12 @@ describe("agent Spaces", { skip: !existsSync(agbPath) && "bin/agb not built; run
     app = await App.launch({ args: [site.url + "/cookies"] });
     shell = await app.shell();
     human = await app.page((u) => u.endsWith("/cookies"), "human tab");
-    await waitFor("human tab loaded", () => human.eval("document.readyState === 'complete'"));
+    // The DevTools target reports the URL before the page has committed; wait for the real document
+    // (an error or blank page has an opaque origin, where setting a cookie throws).
+    await waitFor("human tab loaded", () => human.eval(`location.origin === ${JSON.stringify(site.url)} && document.readyState === 'complete'`), 20_000);
     await human.eval(`document.cookie = "humancookie=1; path=/"`);
+    // X-01 compares the human's tab strip before and after; make sure the shell has rendered it.
+    await waitFor("shell shows the human tab", async () => (await shellTabs(shell)).some((t) => t.title === "Cookies"), 20_000);
   });
 
   after(async () => {
@@ -181,9 +185,14 @@ describe("agent Spaces", { skip: !existsSync(agbPath) && "bin/agb not built; run
     assert.match(r.stdout, /--- end page content · \d+ chars · hidden text omitted: 5 ---\n$/);
   });
 
-  test("X-04: JavaScript dialogs and beforeunload never block the agent", async () => {
+  test("X-04: dialogs during page load are reported, not stuck; beforeunload never blocks the agent", async () => {
+    // Since M2, dialogs wait for the agent (M1 dismissed them). goto returns as soon as one opens.
     const a = await agb(app, ["goto", site.url + "/alert", "--timeout", "15s"], { cwd: work });
     assert.equal(a.status, 0, a.stderr);
+    assert.match(a.stdout, /dialog: a alert dialog is waiting: "hello"/);
+    assert.match((await agb(app, ["dialog", "accept"], { cwd: work })).stdout, /ok: accepted the dialog/);
+    assert.match((await agb(app, ["dialog"], { cwd: work })).stdout, /confirm dialog: "sure\?"/);
+    assert.equal((await agb(app, ["dialog", "dismiss"], { cwd: work })).status, 0);
     assert.match((await agb(app, ["text"], { cwd: work })).stdout, /after the dialogs/);
     assert.equal((await agb(app, ["goto", site.url + "/unload"], { cwd: work })).status, 0);
     const leave = await agb(app, ["goto", site.url + "/child", "--timeout", "15s"], { cwd: work });

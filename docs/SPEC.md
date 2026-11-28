@@ -348,9 +348,10 @@ Notes:
 
 ### 7.3 Visibility of agent Spaces
 
-- Each agent **tab** renders in its **own window**, hidden by default; showing a Space (from the Space switcher or `agb space show`) shows its active tab's window. One window per tab rather than per Space is deliberate: a `WebContentsView` inside a hidden window produces no frames (no `requestAnimationFrame`, IntersectionObserver, or screenshots), while a hidden `BrowserWindow` keeps painting (found in M1; see [docs/testing/M1-test-cases.md](testing/M1-test-cases.md)).
-- Rendering continues while hidden (`backgroundThrottling: false`, `paintWhenInitiallyHidden: true`), so screenshots and layout stay correct. Screenshots use `webContents.capturePage`, because CDP `Page.captureScreenshot` doesn't answer for hidden windows.
-- Agent windows **never take OS focus**: `focusable: false` while hidden, `showInactive()` when shown, and no `focus()` calls in agent code paths.
+- Each agent **tab** renders in its **own window**, kept **off-screen** by default: the window is shown (inactive, `focusable: false`, `skipTaskbar: true`) at −32000,−32000, outside every monitor. Showing a Space (from the Space switcher or `agb space show`) moves its active tab's window on-screen; hiding moves it back. One window per tab rather than per Space is deliberate: a `WebContentsView` inside a window that isn't rendering produces no frames.
+- Why off-screen and not hidden (measured in M2, see [docs/testing/M2-test-cases.md](testing/M2-test-cases.md)): Chromium throttles a *hidden* window to about 1 frame per second once it receives input, so `requestAnimationFrame`, IntersectionObserver, and lazy loading stall and every pointer event waits ~0.8 s. A shown window keeps rendering at full speed (`backgroundThrottling: false`), provided Chromium's native occlusion tracking doesn't mark it as covered; the app turns that off (`--disable-features=CalculateNativeWinOcclusion` on Windows; macOS needs its own check before beta, R12).
+- Screenshots use `webContents.capturePage`, because CDP `Page.captureScreenshot` doesn't answer for these windows.
+- Agent windows **never take OS focus**: `focusable: false`, `showInactive()`, and no `focus()` calls in agent code paths.
 - All input goes through CDP to the target `webContents`. The OS cursor and keyboard focus don't change.
 - The page viewport of an agent tab is fixed by its Space's settings. Showing the window or changing the human's tab layout resizes the window around it, never the viewport (§6.3.4).
 
@@ -623,7 +624,7 @@ Rules:
 
 ### 10.3 Refs
 
-- Format `@e<N>`, numbered in document order and reset per tab when a navigation commits.
+- Format `@e<N>`, numbered in document order. When a navigation commits, the tab's refs are forgotten but **numbering continues**: numbers are never reused within a tab, so a ref from an earlier page fails with `E_STALE_REF` instead of hitting whatever element got the same number on the new page. (Restarting at `@e1` on every page, as first planned, let an old ref silently click a different element; found by the M2 task suite.)
 - Each ref maps to `{frameId, backendDOMNodeId}` plus a **fingerprint** `{role, name, tag, nearest landmark, index among same-fingerprint siblings}`.
 - **Stability across re-snapshots on the same document**: if a node still exists, it keeps its ref. New nodes get new numbers; numbers are never reused within a document.
 
@@ -716,7 +717,7 @@ If navigation happened: `ok: clicked link "Docs" @e4 → navigated to https://�
 | Case | Behavior |
 |---|---|
 | New tab or popup opened by the page | Adopted into the same agent Space; the output says `opened tab t_3`. It becomes active only if the agent selects it or passes `--follow`. |
-| JS dialog | Blocks the page; the next command returns `E_DIALOG_OPEN` with the dialog text unless the agent handles it with `agb dialog`. Policy can auto-dismiss `beforeunload`. |
+| JS dialog | Blocks the page; the next command returns `E_DIALOG_OPEN` with the dialog text unless the agent handles it with `agb dialog`. An action or navigation that opens one returns at once and reports it. `beforeunload` is accepted automatically (policy may change that). `prompt()` is not supported by Electron: it returns `null` without showing anything, so pages that rely on it don't work in v1. |
 | File chooser | Intercepted (`Page.setInterceptFileChooserDialog`); the agent must use `agb upload`. |
 | Download | Saved to the Space's download sandbox (§15.6); reported in the output. |
 | HTTP auth prompt | Triggers a handoff; the agent never receives HTTP auth credentials. |
@@ -1367,6 +1368,7 @@ Later: Linux; a built-in sidebar agent (bring-your-own API key); sharing routine
 | R9 | Teach mode captures sensitive data | Sensitive fields never recorded, review screen before saving, local-only storage, visible recording badge, easy deletion |
 | R10 | Routines from demonstrations break when sites change | Semantic targets (role, name, landmark) instead of coordinates; a broken step goes back to the agent to fix with human approval; version history |
 | R11 | The pointer and keyboard models don't match every input device (trackpads, pens, non-US keyboards) | Start with mouse + US/UK/DE/ID layouts; add trackpad-style scrolling and pen input after the fidelity suite has real-device baselines |
+| R12 | Off-screen agent windows (§7.3) depend on turning off Chromium's native occlusion tracking. The cost: the human's own windows keep rendering while other apps cover them (minimized windows are still throttled). macOS and Linux occlude windows differently | Measure the power cost on a laptop; verify macOS (its `MacWebContentsOcclusion` feature) and Linux before beta; offscreen rendering (`webPreferences.offscreen`, measured at a steady 30 fps with fast input) is the fallback if a platform can't keep off-screen windows rendering |
 | R4 | Agents ignore the skill and use other tools | A strong skill description; measure triggering in evals; tune wording |
 | R5 | Skill directory paths for non-Claude agents change | Ship `skill-targets.json` with updates; `agb doctor` detects mismatches |
 | R6 | `shared` mode lets an agent sign the human out or change their account | Warn clearly; default to `cloned`; record all `shared` Space actions |

@@ -44,9 +44,7 @@ func parseArgs(args []string, spec map[string]bool) (cmdArgs, error) {
 			if val != "true" && val != "false" {
 				return out, fmt.Errorf("%s takes no value", name)
 			}
-			if val == "true" {
-				out.flags[name] = "true"
-			}
+			out.flags[name] = val // "false" is kept, so commands can tell --x=false from not given
 		default:
 			out.flags[name] = "true"
 		}

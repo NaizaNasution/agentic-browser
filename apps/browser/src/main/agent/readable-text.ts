@@ -89,6 +89,8 @@ export function extractReadableText(): ReadableText {
     if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return true;
     if (parseFloat(style.opacity) === 0) return true;
     if (style.display === "contents") return false;
+    // Covers what computed styles don't: the body of a closed <details>, content-visibility: hidden.
+    if (typeof (el as HTMLElement).checkVisibility === "function" && !(el as HTMLElement).checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return true;
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0 && style.overflow !== "visible") return true;
     if ((rect.width <= 1 || rect.height <= 1) && style.overflow === "hidden") return true; // "visually hidden" helpers
