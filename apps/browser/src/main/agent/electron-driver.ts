@@ -291,8 +291,9 @@ class ElectronTab implements TabBackend, ActorHost {
       this.refs.reset();
       this.baseline = undefined;
       this.worlds.clear();
-      this.dialog = undefined;
-      this.answeredDialogs = 0;
+      // Dialog state is left alone: Electron can report this navigation after the new page's first alert() has
+      // already been reported (seen on a slow CI runner), and clearing here lost that dialog. A navigation can't
+      // happen while a dialog blocks the page anyway, and dialogs that do close send Page.javascriptDialogClosed.
     });
     this.wc.on("did-frame-navigate", () => this.worlds.clear());
     this.wc.on("destroyed", () => {
@@ -1042,7 +1043,10 @@ class ElectronTab implements TabBackend, ActorHost {
       case "Page.javascriptDialogClosed":
         // The close of a dialog this tab answered: the dialog is already cleared, and a newer one may be open.
         if (this.answeredDialogs > 0) this.answeredDialogs--;
-        else this.dialog = undefined; // closed some other way (the page went away)
+        else {
+          this.log(`space ${this.spec.spaceId}: ${this.dialog?.type ?? "a"} dialog closed by the page or browser`);
+          this.dialog = undefined; // closed some other way (the page went away)
+        }
         break;
       case "Page.fileChooserOpened":
         if (params.backendNodeId !== undefined) for (const l of this.chooserListeners) l({ backendNodeId: params.backendNodeId, session });
