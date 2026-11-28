@@ -216,6 +216,12 @@ class ElectronTab implements TabBackend, ActorHost {
   private navStarts = 0;
   private navCommits = 0;
   private dialog: PendingDialog | undefined;
+  /**
+   * Dialogs this tab answered itself whose Page.javascriptDialogClosed hasn't arrived yet. That event can come
+   * after the next dialog's Page.javascriptDialogOpening (an alert() followed at once by a confirm(), on a slow
+   * machine), so it must not clear the newer dialog.
+   */
+  private answeredDialogs = 0;
   private readonly dialogListeners = new Set<(d: DialogInfo) => void>();
   private readonly chooserListeners = new Set<(e: { backendNodeId: number; session: string }) => void>();
   private readonly actor: Actor;
@@ -286,6 +292,7 @@ class ElectronTab implements TabBackend, ActorHost {
       this.baseline = undefined;
       this.worlds.clear();
       this.dialog = undefined;
+      this.answeredDialogs = 0;
     });
     this.wc.on("did-frame-navigate", () => this.worlds.clear());
     this.wc.on("destroyed", () => {
@@ -701,7 +708,13 @@ class ElectronTab implements TabBackend, ActorHost {
         const d = this.dialog;
         if (!d) throw new AgentError("E_INVALID_PARAMS", "no dialog is open in this tab", "dialogs show up in action results and in `agb dialog list`");
         this.dialog = undefined;
-        await this.cdp("Page.handleJavaScriptDialog", { accept: req.accept, ...(req.text !== undefined ? { promptText: req.text } : {}) }, d.session);
+        this.answeredDialogs++;
+        try {
+          await this.cdp("Page.handleJavaScriptDialog", { accept: req.accept, ...(req.text !== undefined ? { promptText: req.text } : {}) }, d.session);
+        } catch (e) {
+          this.answeredDialogs = Math.max(0, this.answeredDialogs - 1); // no close event will come
+          throw e;
+        }
         out.note = `${req.accept ? "accepted" : "dismissed"} ${d.type} "${d.message.slice(0, 80)}"`;
         return undefined;
       }
@@ -1015,7 +1028,10 @@ class ElectronTab implements TabBackend, ActorHost {
         const message = String(params.message ?? "");
         if (params.type === "beforeunload") {
           // "Leave site?" never blocks an agent (policy can change this later, §11.5).
-          void this.cdp("Page.handleJavaScriptDialog", { accept: true }, session).catch(() => {});
+          this.answeredDialogs++;
+          void this.cdp("Page.handleJavaScriptDialog", { accept: true }, session).catch(() => {
+            this.answeredDialogs = Math.max(0, this.answeredDialogs - 1);
+          });
           break;
         }
         this.dialog = { type: params.type, message, ...(params.type === "prompt" ? { defaultPrompt: String(params.defaultPrompt ?? "") } : {}), session };
@@ -1024,7 +1040,9 @@ class ElectronTab implements TabBackend, ActorHost {
         break;
       }
       case "Page.javascriptDialogClosed":
-        this.dialog = undefined;
+        // The close of a dialog this tab answered: the dialog is already cleared, and a newer one may be open.
+        if (this.answeredDialogs > 0) this.answeredDialogs--;
+        else this.dialog = undefined; // closed some other way (the page went away)
         break;
       case "Page.fileChooserOpened":
         if (params.backendNodeId !== undefined) for (const l of this.chooserListeners) l({ backendNodeId: params.backendNodeId, session });
