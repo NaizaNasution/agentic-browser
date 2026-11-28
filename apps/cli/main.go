@@ -27,8 +27,10 @@ const (
 	exitUsage     = 2
 	exitNoGateway = 3
 	exitDenied    = 4
+	exitRef       = 5
 	exitTimeout   = 7
 	exitNavFailed = 8
+	exitNotActive = 9
 	exitVersion   = 10
 )
 
@@ -55,6 +57,20 @@ func init() {
 		{"back", "Go back in the tab's history", cmdHistory("back")},
 		{"forward", "Go forward in the tab's history", cmdHistory("forward")},
 		{"reload", "Reload the page", cmdHistory("reload")},
+		{"snapshot", "[--mode interactive|full] [--scope <ref>] [--max-tokens N] [--diff]: the page as text with refs (@e12)", cmdSnapshot},
+		{"click", "<ref> [--button right] [--count 2] [--modifiers ctrl,shift] [--follow]: click an element", cmdAction("click")},
+		{"fill", `<ref> "<text>" [--submit] [--no-clear] [--direct]: replace a field's text by typing`, cmdAction("fill")},
+		{"type", `"<text>" [--ref <ref>]: type into the focused element (or click <ref> first)`, cmdAction("type")},
+		{"press", "<keys> [--ref <ref>]: press Enter, Escape, Tab, Control+A, Shift+Tab, …", cmdAction("press")},
+		{"select", "<ref> <option>...: choose options in a dropdown or listbox", cmdAction("select")},
+		{"check", "<ref>: check a checkbox, radio, or switch", cmdAction("check")},
+		{"uncheck", "<ref>: uncheck a checkbox or switch", cmdAction("uncheck")},
+		{"hover", "<ref>: move the pointer over an element", cmdAction("hover")},
+		{"scroll", "[<ref>] [--by x,y] [--page down|up] [--to top|bottom|<ref>]: scroll with the mouse wheel", cmdAction("scroll")},
+		{"upload", "<ref> <file>...: set files on a file input (files from the current directory)", cmdAction("upload")},
+		{"wait", `[--text "..."] [--ref <ref>] [--gone] [--url <glob>] [--load] [--networkidle] [--ms N]`, cmdWait},
+		{"dialog", "[list] | accept [--text ...] | dismiss: answer an alert, confirm, or prompt", cmdDialog},
+		{"download", "[list] | wait [<id>]: downloads saved in the Space's download folder", cmdDownload},
 		{"text", "[--max-chars N]: the page's readable text as Markdown", cmdText},
 		{"capture", "[-o file.png] [--full-page] [--format png|jpeg] [--quality N]: screenshot", cmdCapture},
 		{"tab", "new [<url>] | list | select <id> | close [<id>] | info [<id>]: tabs in the Space", cmdTab},
@@ -188,6 +204,9 @@ var exitCodes = map[string]int{
 	"E_TIMEOUT":        exitTimeout,
 	"E_NAV_FAILED":     exitNavFailed,
 	"E_VERSION":        exitVersion,
+	"E_NO_REF":         exitRef,
+	"E_STALE_REF":      exitRef,
+	"E_NOT_ACTIONABLE": exitNotActive,
 }
 
 // reportErr prints an error (to stderr, or as {"ok": false, "error": …} on stdout with --json)

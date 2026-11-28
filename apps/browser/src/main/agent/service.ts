@@ -3,15 +3,31 @@
 // Free of Electron imports: the browser side is behind AgentDriver, so this logic is unit-tested with a fake.
 import { randomBytes } from "node:crypto";
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import type {
+  ActionResult,
   AgentContext,
   CaptureParams,
   CaptureResult,
+  ClickParams,
+  DialogInfo,
+  DialogListResult,
+  DialogParams,
+  DownloadInfo,
+  DownloadListResult,
+  DownloadWaitParams,
+  DownloadWaitResult,
+  FillParams,
   GotoParams,
   HistoryParams,
   Location,
   NavResult,
+  PressParams,
+  RefParams,
+  ScrollParams,
+  SelectParams,
+  SnapshotParams,
+  SnapshotResult,
   SpaceCloseResult,
   SpaceCreateParams,
   SpaceInfo,
@@ -26,8 +42,13 @@ import type {
   TabSelectParams,
   TextParams,
   TextResult,
+  TypeParams,
+  UploadParams,
+  WaitParams,
+  WaitResult,
 } from "@agb/protocol";
 import { AgentError, tabClosed, timedOut } from "./errors";
+import type { Modifier } from "./keys";
 import { normalizeAgentUrl } from "./urls";
 
 export type WaitUntil = "load" | "domcontentloaded" | "networkidle" | "none";
@@ -44,9 +65,9 @@ export interface TabBackend {
   title(): string;
   loading(): boolean;
   /** Navigates and waits. Rejects with AgentError (E_NAV_FAILED, E_TIMEOUT, E_NO_TAB). */
-  navigate(url: string, wait: WaitUntil, deadline: number): Promise<{ status?: number }>;
+  navigate(url: string, wait: WaitUntil, deadline: number): Promise<{ status?: number; dialog?: DialogInfo }>;
   /** Back, forward, or reload. `moved` is false when there is no history entry in that direction. */
-  history(action: "back" | "forward" | "reload", wait: WaitUntil, deadline: number): Promise<{ moved: boolean; status?: number }>;
+  history(action: "back" | "forward" | "reload", wait: WaitUntil, deadline: number): Promise<{ moved: boolean; status?: number; dialog?: DialogInfo }>;
   /** Stops loading (used when a command times out). */
   stop(): void;
   capture(opts: { fullPage: boolean; format: "png" | "jpeg"; quality: number }, deadline: number): Promise<{ data: Buffer; width: number; height: number; truncated: boolean }>;
@@ -56,7 +77,38 @@ export interface TabBackend {
   show(position?: { x: number; y: number }): { x: number; y: number };
   hide(): void;
   close(): void;
+  /** Text snapshot with refs (§10). */
+  snapshot(req: SnapshotRequest, deadline: number): Promise<Omit<SnapshotResult, "at">>;
+  /** Acts on the page (§11): resolve, check, input, settle, report changes. */
+  act(req: ActionRequest, deadline: number): Promise<ActionOutcome>;
+  waitFor(params: WaitParams, deadline: number): Promise<{ matched: string }>;
+  /** The JavaScript dialog blocking the page, if any. */
+  pendingDialog(): DialogInfo | undefined;
 }
+
+export interface SnapshotRequest {
+  mode?: "interactive" | "full";
+  scope?: string;
+  maxTokens?: number;
+  diff?: boolean;
+}
+
+/** An action for TabBackend.act. `snapshot` asks for a fresh snapshot with the result. */
+export type ActionRequest = { snapshot?: boolean } & (
+  | { kind: "click"; ref: string; button?: "left" | "right" | "middle"; count?: number; modifiers?: Modifier[] }
+  | { kind: "hover"; ref: string }
+  | { kind: "fill"; ref: string; text: string; submit?: boolean; clear?: boolean; direct?: boolean }
+  | { kind: "type"; text: string; ref?: string }
+  | { kind: "press"; keys: string; ref?: string }
+  | { kind: "select"; ref: string; values: string[] }
+  | { kind: "check" | "uncheck"; ref: string }
+  | { kind: "scroll"; ref?: string; dx?: number; dy?: number; page?: "up" | "down"; to?: string }
+  | { kind: "upload"; ref: string; files: string[] }
+  | { kind: "dialog"; accept: boolean; text?: string }
+);
+
+/** What TabBackend.act reports; the service adds the location, opened tabs, and duration. */
+export type ActionOutcome = Omit<ActionResult, "at" | "opened" | "durationMs" | "snapshot"> & { snapshot?: Omit<SnapshotResult, "at"> };
 
 export interface TabEvents {
   /** The page opened a new window (target=_blank, window.open). */
@@ -69,19 +121,25 @@ export interface TabEvents {
 
 export interface SpaceBackend {
   readonly partition: string;
+  /** Where the Space's downloads are saved (SPEC §15.6). */
+  readonly downloadDir: string;
+  downloads(): DownloadInfo[];
+  /** Waits for a download (default: the latest) to finish. */
+  waitDownload(id: string | undefined, deadline: number): Promise<DownloadInfo>;
   /** Throws away the Space's storage. */
   dispose(): Promise<void>;
 }
 
 export interface TabSpec {
   spaceId: string;
+  tabId: string;
   agent: string;
   partition: string;
   viewport: Viewport;
 }
 
 export interface AgentDriver {
-  createSpace(id: string, mode: SpaceMode): Promise<SpaceBackend>;
+  createSpace(id: string, mode: SpaceMode, agent: string): Promise<SpaceBackend>;
   createTab(spec: TabSpec, events: TabEvents): Promise<TabBackend>;
 }
 
@@ -119,6 +177,8 @@ interface SpaceRec {
   createdAt: number;
   lastUsedAt: number;
   closed: boolean;
+  /** Tabs being opened because a page opened a window (reported as `opened` by the action that caused it). */
+  pendingPopups: Set<Promise<void>>;
 }
 
 interface Resolved {
@@ -237,6 +297,52 @@ export class AgentService {
         return this.text(p as TextParams, ctx, deadline);
       case "page.capture":
         return this.capture(p as CaptureParams, ctx, deadline);
+      case "page.snapshot":
+        return this.snapshot(p as SnapshotParams, ctx, deadline);
+      case "page.click": {
+        const c = p as ClickParams;
+        return this.action(ctx, deadline, { kind: "click", ref: c.ref, ...pick(c, "button", "count", "snapshot"), ...(c.modifiers ? { modifiers: c.modifiers as Modifier[] } : {}) }, c.follow);
+      }
+      case "page.hover":
+        return this.action(ctx, deadline, { kind: "hover", ...pick(p as RefParams, "ref", "snapshot") } as ActionRequest);
+      case "page.fill":
+        return this.action(ctx, deadline, { kind: "fill", ...pick(p as FillParams, "ref", "text", "submit", "clear", "direct", "snapshot") } as ActionRequest);
+      case "page.type":
+        return this.action(ctx, deadline, { kind: "type", ...pick(p as TypeParams, "text", "ref", "snapshot") } as ActionRequest);
+      case "page.press":
+        return this.action(ctx, deadline, { kind: "press", ...pick(p as PressParams, "keys", "ref", "snapshot") } as ActionRequest);
+      case "page.select":
+        return this.action(ctx, deadline, { kind: "select", ...pick(p as SelectParams, "ref", "values", "snapshot") } as ActionRequest);
+      case "page.check":
+      case "page.uncheck":
+        return this.action(ctx, deadline, { kind: method === "page.check" ? "check" : "uncheck", ...pick(p as RefParams, "ref", "snapshot") } as ActionRequest);
+      case "page.scroll":
+        return this.action(ctx, deadline, { kind: "scroll", ...pick(p as ScrollParams, "ref", "dx", "dy", "page", "to", "snapshot") } as ActionRequest);
+      case "page.upload":
+        return this.upload(p as UploadParams, ctx, deadline);
+      case "wait.for":
+        return this.waitFor(p as WaitParams, ctx, deadline);
+      case "dialog.list": {
+        const { space, tab } = this.existingTab(ctx);
+        const dialog = tab.backend.pendingDialog();
+        return { at: this.location(space, tab), ...(dialog ? { dialog } : {}) } satisfies DialogListResult;
+      }
+      case "dialog.accept":
+      case "dialog.dismiss": {
+        const d = p as DialogParams;
+        return this.action(ctx, deadline, { kind: "dialog", accept: method === "dialog.accept", ...pick(d, "text", "snapshot") } as ActionRequest, false, true);
+      }
+      case "download.list": {
+        const space = this.findSpace(ctx);
+        if (!space) throw noSpace(ctx);
+        return { space: space.id, downloads: space.backend.downloads() } satisfies DownloadListResult;
+      }
+      case "download.wait": {
+        const space = this.findSpace(ctx);
+        if (!space) throw noSpace(ctx);
+        const download = await space.backend.waitDownload((p as DownloadWaitParams).id, deadline);
+        return { space: space.id, download } satisfies DownloadWaitResult;
+      }
       default:
         throw new AgentError("E_UNSUPPORTED", `${method} is not available yet`);
     }
@@ -295,7 +401,7 @@ export class AgentService {
     this.reserved.add(id);
     let backend: SpaceBackend;
     try {
-      backend = await this.driver.createSpace(id, mode);
+      backend = await this.driver.createSpace(id, mode, agent);
     } finally {
       this.reserved.delete(id);
     }
@@ -313,6 +419,7 @@ export class AgentService {
       createdAt: now,
       lastUsedAt: now,
       closed: false,
+      pendingPopups: new Set(),
     };
     this.spaces.set(id, space);
     this.log(`space ${id} created for ${agent} (${mode})`);
@@ -442,7 +549,7 @@ export class AgentService {
     const id = `t_${++space.tabSeq}`;
     const holder: { tab?: TabRec } = {};
     const backend = await this.driver.createTab(
-      { spaceId: space.id, agent: space.agent, partition: space.backend.partition, viewport: this.viewport },
+      { spaceId: space.id, tabId: id, agent: space.agent, partition: space.backend.partition, viewport: this.viewport },
       {
         onPopup: (url) => void this.openPopup(space, url),
         onUserHide: () => {
@@ -469,16 +576,21 @@ export class AgentService {
   }
 
   /** Pages that open new windows get a new tab in the same Space, without changing the active tab. */
-  private async openPopup(space: SpaceRec, url: string): Promise<void> {
-    if (space.closed) return;
+  private openPopup(space: SpaceRec, url: string): Promise<void> {
+    if (space.closed) return Promise.resolve();
     const checked = normalizeAgentUrl(url);
-    if (!checked.ok) return;
-    try {
-      const tab = await this.createTab(space, false);
-      await tab.backend.navigate(checked.url, "none", this.now() + 30_000);
-    } catch (e) {
-      this.log(`space ${space.id}: popup ${url} not opened: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    if (!checked.ok) return Promise.resolve();
+    const work = (async () => {
+      try {
+        const tab = await this.createTab(space, false);
+        await tab.backend.navigate(checked.url, "none", this.now() + 30_000);
+      } catch (e) {
+        this.log(`space ${space.id}: popup ${url} not opened: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    })();
+    space.pendingPopups.add(work);
+    void work.finally(() => space.pendingPopups.delete(work));
+    return work;
   }
 
   private removeTab(space: SpaceRec, tab: TabRec): void {
@@ -522,9 +634,14 @@ export class AgentService {
   }
 
   /** Runs `fn` after the tab's earlier commands finish (FIFO per tab, SPEC §8.6). */
-  private onTab<T>(tab: TabRec, fn: () => Promise<T>): Promise<T> {
+  private onTab<T>(tab: TabRec, fn: () => Promise<T>, allowDialog = false): Promise<T> {
     const run = tab.queue.then(() => {
       if (tab.closed) throw tabClosed();
+      // A JavaScript dialog blocks the page until the agent answers it (§11.5).
+      const dialog = allowDialog ? undefined : tab.backend.pendingDialog();
+      if (dialog) {
+        throw new AgentError("E_DIALOG_OPEN", `a ${dialog.type} dialog is open: "${dialog.message.slice(0, 200)}"`, "answer it with `agb dialog accept` or `agb dialog dismiss`");
+      }
       return fn();
     });
     tab.queue = run.catch(() => {});
@@ -559,8 +676,8 @@ export class AgentService {
     let tab: TabRec;
     if (ctx.tab) tab = this.existingTab({ ...ctx, space: space.id }).tab;
     else tab = (space.activeTab && space.tabs.get(space.activeTab)) || (await this.createTab(space, true));
-    const { status } = await this.onTab(tab, () => this.guard(tab, deadline, "navigation", () => tab.backend.navigate(url, p.wait ?? "load", deadline)));
-    return { at: this.location(space, tab, created), ...(status ? { status } : {}), durationMs: this.now() - started };
+    const { status, dialog } = await this.onTab(tab, () => this.guard(tab, deadline, "navigation", () => tab.backend.navigate(url, p.wait ?? "load", deadline)));
+    return { at: this.location(space, tab, created), ...(status ? { status } : {}), ...(dialog ? { dialog } : {}), durationMs: this.now() - started };
   }
 
   private async history(action: "back" | "forward" | "reload", p: HistoryParams, ctx: AgentContext, deadline: number): Promise<NavResult> {
@@ -570,6 +687,7 @@ export class AgentService {
     return {
       at: this.location(space, tab),
       ...(r.status ? { status: r.status } : {}),
+      ...(r.dialog ? { dialog: r.dialog } : {}),
       ...(action !== "reload" ? { moved: r.moved } : {}),
       durationMs: this.now() - started,
     };
@@ -586,12 +704,78 @@ export class AgentService {
   private async capture(p: CaptureParams, ctx: AgentContext, deadline: number): Promise<CaptureResult> {
     const { space, tab } = this.existingTab(ctx);
     const format = p.format ?? "png";
-    const shot = await this.onTab(tab, () => tab.backend.capture({ fullPage: p.fullPage ?? false, format, quality: p.quality ?? 80 }, deadline));
+    // A screenshot is fine while a dialog waits (the dialog isn't drawn on the page).
+    const shot = await this.onTab(tab, () => tab.backend.capture({ fullPage: p.fullPage ?? false, format, quality: p.quality ?? 80 }, deadline), true);
     await mkdir(this.opts.captureDir, { recursive: true });
     const stamp = new Date(this.now()).toISOString().replace(/[:.]/g, "-");
     const path = join(this.opts.captureDir, `${space.id}-${tab.id}-${stamp}-${randomBytes(2).toString("hex")}.${format === "jpeg" ? "jpg" : "png"}`);
     await writeFile(path, shot.data);
     return { at: this.location(space, tab), path, format, width: shot.width, height: shot.height, bytes: shot.data.length, truncated: shot.truncated };
+  }
+
+  // ---------- snapshots and actions (§10, §11) ----------
+
+  private async snapshot(p: SnapshotParams, ctx: AgentContext, deadline: number): Promise<SnapshotResult> {
+    const { space, tab } = this.existingTab(ctx);
+    const r = await this.onTab(tab, () => tab.backend.snapshot(pick(p, "mode", "scope", "maxTokens", "diff"), deadline));
+    return { at: this.location(space, tab), ...r };
+  }
+
+  /** Runs an action on the target tab and reports where it ended up, tabs it opened, and its duration. */
+  private async action(ctx: AgentContext, deadline: number, req: ActionRequest, follow = false, allowDialog = false): Promise<ActionResult> {
+    const started = this.now();
+    const { space, tab } = this.existingTab(ctx);
+    const before = new Set(space.order);
+    const out = await this.onTab(tab, () => tab.backend.act(req, deadline), allowDialog);
+    // Tabs a page opens arrive asynchronously; give them a moment.
+    if (space.pendingPopups.size) await Promise.race([Promise.allSettled([...space.pendingPopups]), new Promise((r) => setTimeout(r, 1000))]);
+    const opened = space.order.filter((id) => !before.has(id));
+    let at = tab;
+    if (follow && opened[0]) {
+      space.activeTab = opened[0];
+      this.syncVisibility(space);
+      at = space.tabs.get(opened[0]) ?? tab;
+    }
+    const { snapshot, ...rest } = out;
+    return {
+      at: this.location(space, at),
+      ...rest,
+      ...(opened.length ? { opened } : {}),
+      ...(snapshot ? { snapshot: { at: this.location(space, at), ...snapshot } } : {}),
+      durationMs: this.now() - started,
+    };
+  }
+
+  /** Files must exist and come from the caller's working directory or the Space's download folder (§15.6). */
+  private async upload(p: UploadParams, ctx: AgentContext, deadline: number): Promise<ActionResult> {
+    if (!p.files.length) throw new AgentError("E_INVALID_PARAMS", "no files given", "pass one or more file paths");
+    const space = this.findSpace(ctx);
+    if (!space) throw noSpace(ctx);
+    const allowed = [ctx.cwd, space.backend.downloadDir].filter((d): d is string => !!d).map((d) => resolve(d));
+    const files: string[] = [];
+    for (const f of p.files) {
+      const abs = resolve(ctx.cwd ?? "", f);
+      const inside = allowed.some((dir) => {
+        const rel = relative(dir, abs);
+        return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+      });
+      if (!inside) throw new AgentError("E_DENIED", `${f} is outside the working directory and the Space's download folder`, "copy the file into the current directory first, or upload a file this Space downloaded");
+      const st = await stat(abs).catch(() => undefined);
+      if (!st?.isFile()) throw new AgentError("E_INVALID_PARAMS", `${f} is not a file`, "check the path");
+      files.push(abs);
+    }
+    return this.action(ctx, deadline, { kind: "upload", ref: p.ref, files, ...(p.snapshot ? { snapshot: true } : {}) });
+  }
+
+  private async waitFor(p: WaitParams, ctx: AgentContext, deadline: number): Promise<WaitResult> {
+    const conditions = [p.text, p.ref, p.url, p.load, p.networkidle].filter((c) => c !== undefined && c !== false).length;
+    if (p.gone && !p.text && !p.ref) throw new AgentError("E_INVALID_PARAMS", "--gone needs --text or --ref", "for example `agb wait --text Loading --gone`");
+    if (conditions > 1) throw new AgentError("E_INVALID_PARAMS", "wait for one thing at a time", "use one of --text, --ref, --url, --load, --networkidle (with --ms for an extra pause)");
+    if (conditions === 0 && p.ms === undefined) throw new AgentError("E_INVALID_PARAMS", "nothing to wait for", "use --text, --ref, --url, --load, --networkidle, or --ms");
+    const started = this.now();
+    const { space, tab } = this.existingTab(ctx);
+    const r = await this.onTab(tab, () => tab.backend.waitFor(p, deadline));
+    return { at: this.location(space, tab), matched: r.matched, waitedMs: this.now() - started };
   }
 
   /** Stops the page if a navigation outlives the command's deadline. */
@@ -630,6 +814,13 @@ function checkUrl(input: string): string {
 
 function displayUrl(url: string): string {
   return url === "about:blank" ? "" : url;
+}
+
+/** The listed keys of `o` that are set. */
+function pick<T extends object, K extends keyof T>(o: T, ...keys: K[]): Pick<T, K> {
+  const out = {} as Pick<T, K>;
+  for (const k of keys) if (o[k] !== undefined) out[k] = o[k];
+  return out;
 }
 
 /** Cuts text at a line break near the limit when there is one. */

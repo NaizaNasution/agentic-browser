@@ -19,7 +19,11 @@
     "E_NAV_FAILED": { "code": -32013, "message": "Navigation failed" },
     "E_LIMIT": { "code": -32014, "message": "Space or tab limit reached" },
     "E_DENIED": { "code": -32015, "message": "Denied by policy" },
-    "E_UNSUPPORTED": { "code": -32016, "message": "Not supported in this version" }
+    "E_UNSUPPORTED": { "code": -32016, "message": "Not supported in this version" },
+    "E_NO_REF": { "code": -32017, "message": "No element with that ref" },
+    "E_STALE_REF": { "code": -32018, "message": "The element for that ref is gone" },
+    "E_NOT_ACTIONABLE": { "code": -32019, "message": "The element can't be acted on" },
+    "E_DIALOG_OPEN": { "code": -32020, "message": "A JavaScript dialog is open" }
   },
   "types": {
     "AgentContext": {
@@ -195,7 +199,8 @@
         "at": { "$ref": "Location" },
         "status": { "type": "integer", "description": "HTTP status of the main document" },
         "moved": { "type": "boolean", "description": "For back and forward: false if there was no history entry" },
-        "durationMs": { "type": "integer" }
+        "durationMs": { "type": "integer" },
+        "dialog": { "$ref": "DialogInfo", "description": "A dialog opened while the page loaded and is waiting (use dialog accept or dismiss)" }
       }
     },
     "TextParams": { "type": "object", "properties": { "maxChars": { "type": "integer", "minimum": 100, "maximum": 1000000, "description": "Default 20000" } } },
@@ -230,6 +235,203 @@
         "bytes": { "type": "integer" },
         "truncated": { "type": "boolean", "description": "Full-page capture was cut at the maximum height" }
       }
+    },
+    "SnapshotParams": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["interactive", "full"], "description": "Default interactive (§10.5)" },
+        "scope": { "type": "string", "minLength": 1, "maxLength": 16, "description": "Only this element's subtree" },
+        "maxTokens": { "type": "integer", "minimum": 200, "maximum": 100000, "description": "Token budget (default 4000)" },
+        "diff": { "type": "boolean", "description": "Only what changed since this tab's last snapshot (§10.6)" }
+      }
+    },
+    "ScrollInfo": {
+      "type": "object",
+      "required": ["y", "maxY", "viewportHeight"],
+      "properties": { "y": { "type": "integer" }, "maxY": { "type": "integer" }, "viewportHeight": { "type": "integer" } }
+    },
+    "SnapshotResult": {
+      "type": "object",
+      "required": ["at", "text", "refs", "tokens", "hiddenOmitted", "collapsed", "scroll"],
+      "properties": {
+        "at": { "$ref": "Location" },
+        "text": { "type": "string", "description": "The snapshot (§10.2). Untrusted page content. Empty for a diff." },
+        "refs": { "type": "integer" },
+        "tokens": { "type": "integer" },
+        "hiddenOmitted": { "type": "integer", "description": "Text left out because people can't see it" },
+        "collapsed": { "type": "integer", "description": "Sections collapsed to fit the token budget" },
+        "scroll": { "$ref": "ScrollInfo" },
+        "changes": { "type": "array", "items": { "type": "string" }, "description": "With diff: lines like `+ alert \"…\" @e9`" },
+        "note": { "type": "string" }
+      }
+    },
+    "ActionTarget": {
+      "type": "object",
+      "required": ["ref", "role"],
+      "properties": { "ref": { "type": "string" }, "role": { "type": "string" }, "name": { "type": "string" } }
+    },
+    "DialogInfo": {
+      "type": "object",
+      "required": ["type", "message"],
+      "properties": {
+        "type": { "type": "string", "description": "alert, confirm, or prompt" },
+        "message": { "type": "string", "description": "Untrusted page content" },
+        "defaultPrompt": { "type": "string" }
+      }
+    },
+    "DownloadInfo": {
+      "type": "object",
+      "required": ["id", "url", "filename", "path", "state", "bytes"],
+      "properties": {
+        "id": { "type": "string" },
+        "tab": { "type": "string" },
+        "url": { "type": "string" },
+        "filename": { "type": "string" },
+        "path": { "type": "string", "description": "In the Space's download folder (§15.6)" },
+        "state": { "type": "string", "enum": ["progressing", "completed", "cancelled", "interrupted"] },
+        "bytes": { "type": "integer" },
+        "totalBytes": { "type": "integer" }
+      }
+    },
+    "ActionResult": {
+      "type": "object",
+      "required": ["at", "action", "changes", "durationMs"],
+      "properties": {
+        "at": { "$ref": "Location" },
+        "action": { "type": "string" },
+        "target": { "$ref": "ActionTarget" },
+        "note": { "type": "string", "description": "e.g. `@e12 re-resolved`" },
+        "navigated": { "type": "boolean", "description": "The action started a navigation; refs were reset" },
+        "changes": { "type": "array", "items": { "type": "string" }, "description": "What changed on the page (§11.4)" },
+        "dialog": { "$ref": "DialogInfo", "description": "A dialog opened and is waiting (use dialog accept or dismiss)" },
+        "opened": { "type": "array", "items": { "type": "string" }, "description": "Tabs the page opened during the action" },
+        "downloads": { "type": "array", "items": { "$ref": "DownloadInfo" } },
+        "fileChooser": { "type": "boolean", "description": "The page opened a file chooser (use upload)" },
+        "value": { "type": "string", "description": "The field's value afterwards, for fill and select (redacted for secrets)" },
+        "scroll": { "$ref": "ScrollInfo" },
+        "snapshot": { "$ref": "SnapshotResult" },
+        "durationMs": { "type": "integer" }
+      }
+    },
+    "ClickParams": {
+      "type": "object",
+      "required": ["ref"],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1, "maxLength": 16, "description": "Element ref from a snapshot, e.g. @e12" },
+        "button": { "type": "string", "enum": ["left", "right", "middle"] },
+        "count": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "modifiers": { "type": "array", "items": { "type": "string", "enum": ["Alt", "Control", "Meta", "Shift"] } },
+        "follow": { "type": "boolean", "description": "Make a tab the click opens the active tab" },
+        "snapshot": { "type": "boolean", "description": "Return a fresh interactive snapshot with the result" }
+      }
+    },
+    "RefParams": {
+      "type": "object",
+      "required": ["ref"],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1, "maxLength": 16, "description": "Element ref from a snapshot, e.g. @e12" },
+        "snapshot": { "type": "boolean", "description": "Return a fresh interactive snapshot with the result" }
+      }
+    },
+    "FillParams": {
+      "type": "object",
+      "required": ["ref", "text"],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1, "maxLength": 16, "description": "Element ref from a snapshot, e.g. @e12" },
+        "text": { "type": "string", "maxLength": 100000 },
+        "submit": { "type": "boolean", "description": "Press Enter afterwards" },
+        "clear": { "type": "boolean", "description": "Delete the old text first (default true)" },
+        "direct": { "type": "boolean", "description": "Set the value without typing (escape hatch)" },
+        "snapshot": { "type": "boolean", "description": "Return a fresh interactive snapshot with the result" }
+      }
+    },
+    "TypeParams": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": { "type": "string", "maxLength": 100000 },
+        "ref": { "type": "string", "minLength": 1, "maxLength": 16, "description": "Click this element first; otherwise type into the focused element" },
+        "snapshot": { "type": "boolean", "description": "Return a fresh interactive snapshot with the result" }
+      }
+    },
+    "PressParams": {
+      "type": "object",
+      "required": ["keys"],
+      "properties": {
+        "keys": { "type": "string", "minLength": 1, "maxLength": 64, "description": "e.g. Enter, Escape, Control+A, Shift+Tab" },
+        "ref": { "type": "string", "minLength": 1, "maxLength": 16, "description": "Focus this element first" },
+        "snapshot": { "type": "boolean", "description": "Return a fresh interactive snapshot with the result" }
+      }
+    },
+    "SelectParams": {
+      "type": "object",
+      "required": ["ref", "values"],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1, "maxLength": 16, "description": "Element ref from a snapshot, e.g. @e12" },
+        "values": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "description": "Option labels or values" },
+        "snapshot": { "type": "boolean", "description": "Return a fresh interactive snapshot with the result" }
+      }
+    },
+    "ScrollParams": {
+      "type": "object",
+      "properties": {
+        "ref": { "type": "string", "minLength": 1, "maxLength": 16, "description": "Scroll this container (or scroll it into view with to=ref)" },
+        "dx": { "type": "integer", "minimum": -100000, "maximum": 100000 },
+        "dy": { "type": "integer", "minimum": -100000, "maximum": 100000 },
+        "page": { "type": "string", "enum": ["up", "down"] },
+        "to": { "type": "string", "maxLength": 16, "description": "top, bottom, or a ref to bring into view" },
+        "snapshot": { "type": "boolean", "description": "Return a fresh interactive snapshot with the result" }
+      }
+    },
+    "UploadParams": {
+      "type": "object",
+      "required": ["ref", "files"],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1, "maxLength": 16, "description": "Element ref from a snapshot, e.g. @e12" },
+        "files": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "description": "Absolute paths" },
+        "snapshot": { "type": "boolean", "description": "Return a fresh interactive snapshot with the result" }
+      }
+    },
+    "WaitParams": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "ref": { "type": "string", "minLength": 1, "maxLength": 16, "description": "Element ref from a snapshot, e.g. @e12" },
+        "gone": { "type": "boolean", "description": "Wait for the text or ref to disappear" },
+        "url": { "type": "string", "minLength": 1, "maxLength": 4096, "description": "Glob: * matches anything" },
+        "load": { "type": "boolean" },
+        "networkidle": { "type": "boolean" },
+        "ms": { "type": "integer", "minimum": 0, "maximum": 300000 }
+      }
+    },
+    "WaitResult": {
+      "type": "object",
+      "required": ["at", "matched", "waitedMs"],
+      "properties": { "at": { "$ref": "Location" }, "matched": { "type": "string" }, "waitedMs": { "type": "integer" } }
+    },
+    "DialogListParams": { "type": "object", "properties": {} },
+    "DialogListResult": { "type": "object", "required": ["at"], "properties": { "at": { "$ref": "Location" }, "dialog": { "$ref": "DialogInfo" } } },
+    "DialogParams": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "maxLength": 10000, "description": "Answer for a prompt() dialog" },
+        "snapshot": { "type": "boolean", "description": "Return a fresh interactive snapshot with the result" }
+      }
+    },
+    "DownloadListParams": { "type": "object", "properties": {} },
+    "DownloadListResult": {
+      "type": "object",
+      "required": ["space", "downloads"],
+      "properties": { "space": { "type": "string" }, "downloads": { "type": "array", "items": { "$ref": "DownloadInfo" } } }
+    },
+    "DownloadWaitParams": {
+      "type": "object",
+      "properties": { "id": { "type": "string", "maxLength": 16, "description": "Default: the most recent download" } }
+    },
+    "DownloadWaitResult": {
+      "type": "object",
+      "required": ["space", "download"],
+      "properties": { "space": { "type": "string" }, "download": { "$ref": "DownloadInfo" } }
     }
   },
   "methods": {
@@ -251,6 +453,23 @@
     "nav.forward": { "description": "Go forward in history.", "params": "HistoryParams", "result": "NavResult" },
     "nav.reload": { "description": "Reload the page.", "params": "HistoryParams", "result": "NavResult" },
     "page.text": { "description": "Readable main text of the page as Markdown.", "params": "TextParams", "result": "TextResult" },
-    "page.capture": { "description": "Screenshot of the viewport or the full page.", "params": "CaptureParams", "result": "CaptureResult" }
+    "page.capture": { "description": "Screenshot of the viewport or the full page.", "params": "CaptureParams", "result": "CaptureResult" },
+    "page.snapshot": { "description": "Text snapshot of the page with element refs.", "params": "SnapshotParams", "result": "SnapshotResult" },
+    "page.click": { "description": "Click an element.", "params": "ClickParams", "result": "ActionResult" },
+    "page.hover": { "description": "Move the pointer over an element.", "params": "RefParams", "result": "ActionResult" },
+    "page.fill": { "description": "Replace the text in a field by typing.", "params": "FillParams", "result": "ActionResult" },
+    "page.type": { "description": "Type text key by key.", "params": "TypeParams", "result": "ActionResult" },
+    "page.press": { "description": "Press a key or key combination.", "params": "PressParams", "result": "ActionResult" },
+    "page.select": { "description": "Choose options in a select or listbox.", "params": "SelectParams", "result": "ActionResult" },
+    "page.check": { "description": "Check a checkbox, radio, or switch.", "params": "RefParams", "result": "ActionResult" },
+    "page.uncheck": { "description": "Uncheck a checkbox or switch.", "params": "RefParams", "result": "ActionResult" },
+    "page.scroll": { "description": "Scroll the page or a container with the mouse wheel.", "params": "ScrollParams", "result": "ActionResult" },
+    "page.upload": { "description": "Set files on a file input.", "params": "UploadParams", "result": "ActionResult" },
+    "wait.for": { "description": "Wait for text, an element, a URL, load, network idle, or a time.", "params": "WaitParams", "result": "WaitResult" },
+    "dialog.list": { "description": "The JavaScript dialog waiting in the tab, if any.", "params": "DialogListParams", "result": "DialogListResult" },
+    "dialog.accept": { "description": "Accept the open dialog (OK).", "params": "DialogParams", "result": "ActionResult" },
+    "dialog.dismiss": { "description": "Dismiss the open dialog (Cancel).", "params": "DialogParams", "result": "ActionResult" },
+    "download.list": { "description": "Downloads in the Space.", "params": "DownloadListParams", "result": "DownloadListResult" },
+    "download.wait": { "description": "Wait for a download to finish.", "params": "DownloadWaitParams", "result": "DownloadWaitResult" }
   }
 }

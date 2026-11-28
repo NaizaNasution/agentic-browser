@@ -138,9 +138,9 @@ type TabResult struct {
 }
 
 type TabCloseResult struct {
-	Closed string   `json:"closed"`
-	Space  string   `json:"space"`
-	At     Location `json:"at,omitempty"` // The new active tab, if any
+	Closed string    `json:"closed"`
+	Space  string    `json:"space"`
+	At     *Location `json:"at,omitempty"` // The new active tab, if any
 }
 
 type GotoParams struct {
@@ -153,10 +153,11 @@ type HistoryParams struct {
 }
 
 type NavResult struct {
-	At         Location `json:"at"`
-	Status     int64    `json:"status,omitempty"` // HTTP status of the main document
-	Moved      bool     `json:"moved,omitempty"`  // For back and forward: false if there was no history entry
-	DurationMs int64    `json:"durationMs"`
+	At         Location    `json:"at"`
+	Status     int64       `json:"status,omitempty"` // HTTP status of the main document
+	Moved      bool        `json:"moved,omitempty"`  // For back and forward: false if there was no history entry
+	DurationMs int64       `json:"durationMs"`
+	Dialog     *DialogInfo `json:"dialog,omitempty"` // A dialog opened while the page loaded and is waiting (use dialog accept or dismiss)
 }
 
 type TextParams struct {
@@ -187,6 +188,173 @@ type CaptureResult struct {
 	Truncated bool     `json:"truncated"` // Full-page capture was cut at the maximum height
 }
 
+type SnapshotParams struct {
+	Mode      string `json:"mode,omitempty"`      // Default interactive (§10.5)
+	Scope     string `json:"scope,omitempty"`     // Only this element's subtree
+	MaxTokens int64  `json:"maxTokens,omitempty"` // Token budget (default 4000)
+	Diff      bool   `json:"diff,omitempty"`      // Only what changed since this tab's last snapshot (§10.6)
+}
+
+type ScrollInfo struct {
+	Y              int64 `json:"y"`
+	MaxY           int64 `json:"maxY"`
+	ViewportHeight int64 `json:"viewportHeight"`
+}
+
+type SnapshotResult struct {
+	At            Location   `json:"at"`
+	Text          string     `json:"text"` // The snapshot (§10.2). Untrusted page content. Empty for a diff.
+	Refs          int64      `json:"refs"`
+	Tokens        int64      `json:"tokens"`
+	HiddenOmitted int64      `json:"hiddenOmitted"` // Text left out because people can't see it
+	Collapsed     int64      `json:"collapsed"`     // Sections collapsed to fit the token budget
+	Scroll        ScrollInfo `json:"scroll"`
+	Changes       []string   `json:"changes,omitempty"` // With diff: lines like `+ alert "…" @e9`
+	Note          string     `json:"note,omitempty"`
+}
+
+type ActionTarget struct {
+	Ref  string `json:"ref"`
+	Role string `json:"role"`
+	Name string `json:"name,omitempty"`
+}
+
+type DialogInfo struct {
+	Type          string `json:"type"`    // alert, confirm, or prompt
+	Message       string `json:"message"` // Untrusted page content
+	DefaultPrompt string `json:"defaultPrompt,omitempty"`
+}
+
+type DownloadInfo struct {
+	ID         string `json:"id"`
+	Tab        string `json:"tab,omitempty"`
+	URL        string `json:"url"`
+	Filename   string `json:"filename"`
+	Path       string `json:"path"` // In the Space's download folder (§15.6)
+	State      string `json:"state"`
+	Bytes      int64  `json:"bytes"`
+	TotalBytes int64  `json:"totalBytes,omitempty"`
+}
+
+type ActionResult struct {
+	At          Location        `json:"at"`
+	Action      string          `json:"action"`
+	Target      *ActionTarget   `json:"target,omitempty"`
+	Note        string          `json:"note,omitempty"`      // e.g. `@e12 re-resolved`
+	Navigated   bool            `json:"navigated,omitempty"` // The action started a navigation; refs were reset
+	Changes     []string        `json:"changes"`             // What changed on the page (§11.4)
+	Dialog      *DialogInfo     `json:"dialog,omitempty"`    // A dialog opened and is waiting (use dialog accept or dismiss)
+	Opened      []string        `json:"opened,omitempty"`    // Tabs the page opened during the action
+	Downloads   []DownloadInfo  `json:"downloads,omitempty"`
+	FileChooser bool            `json:"fileChooser,omitempty"` // The page opened a file chooser (use upload)
+	Value       string          `json:"value,omitempty"`       // The field's value afterwards, for fill and select (redacted for secrets)
+	Scroll      *ScrollInfo     `json:"scroll,omitempty"`
+	Snapshot    *SnapshotResult `json:"snapshot,omitempty"`
+	DurationMs  int64           `json:"durationMs"`
+}
+
+type ClickParams struct {
+	Ref       string   `json:"ref"` // Element ref from a snapshot, e.g. @e12
+	Button    string   `json:"button,omitempty"`
+	Count     int64    `json:"count,omitempty"`
+	Modifiers []string `json:"modifiers,omitempty"`
+	Follow    bool     `json:"follow,omitempty"`   // Make a tab the click opens the active tab
+	Snapshot  bool     `json:"snapshot,omitempty"` // Return a fresh interactive snapshot with the result
+}
+
+type RefParams struct {
+	Ref      string `json:"ref"`                // Element ref from a snapshot, e.g. @e12
+	Snapshot bool   `json:"snapshot,omitempty"` // Return a fresh interactive snapshot with the result
+}
+
+type FillParams struct {
+	Ref      string `json:"ref"` // Element ref from a snapshot, e.g. @e12
+	Text     string `json:"text"`
+	Submit   bool   `json:"submit,omitempty"`   // Press Enter afterwards
+	Clear    bool   `json:"clear,omitempty"`    // Delete the old text first (default true)
+	Direct   bool   `json:"direct,omitempty"`   // Set the value without typing (escape hatch)
+	Snapshot bool   `json:"snapshot,omitempty"` // Return a fresh interactive snapshot with the result
+}
+
+type TypeParams struct {
+	Text     string `json:"text"`
+	Ref      string `json:"ref,omitempty"`      // Click this element first; otherwise type into the focused element
+	Snapshot bool   `json:"snapshot,omitempty"` // Return a fresh interactive snapshot with the result
+}
+
+type PressParams struct {
+	Keys     string `json:"keys"`               // e.g. Enter, Escape, Control+A, Shift+Tab
+	Ref      string `json:"ref,omitempty"`      // Focus this element first
+	Snapshot bool   `json:"snapshot,omitempty"` // Return a fresh interactive snapshot with the result
+}
+
+type SelectParams struct {
+	Ref      string   `json:"ref"`                // Element ref from a snapshot, e.g. @e12
+	Values   []string `json:"values"`             // Option labels or values
+	Snapshot bool     `json:"snapshot,omitempty"` // Return a fresh interactive snapshot with the result
+}
+
+type ScrollParams struct {
+	Ref      string `json:"ref,omitempty"` // Scroll this container (or scroll it into view with to=ref)
+	Dx       int64  `json:"dx,omitempty"`
+	Dy       int64  `json:"dy,omitempty"`
+	Page     string `json:"page,omitempty"`
+	To       string `json:"to,omitempty"`       // top, bottom, or a ref to bring into view
+	Snapshot bool   `json:"snapshot,omitempty"` // Return a fresh interactive snapshot with the result
+}
+
+type UploadParams struct {
+	Ref      string   `json:"ref"`                // Element ref from a snapshot, e.g. @e12
+	Files    []string `json:"files"`              // Absolute paths
+	Snapshot bool     `json:"snapshot,omitempty"` // Return a fresh interactive snapshot with the result
+}
+
+type WaitParams struct {
+	Text        string `json:"text,omitempty"`
+	Ref         string `json:"ref,omitempty"`  // Element ref from a snapshot, e.g. @e12
+	Gone        bool   `json:"gone,omitempty"` // Wait for the text or ref to disappear
+	URL         string `json:"url,omitempty"`  // Glob: * matches anything
+	Load        bool   `json:"load,omitempty"`
+	Networkidle bool   `json:"networkidle,omitempty"`
+	Ms          int64  `json:"ms,omitempty"`
+}
+
+type WaitResult struct {
+	At       Location `json:"at"`
+	Matched  string   `json:"matched"`
+	WaitedMs int64    `json:"waitedMs"`
+}
+
+type DialogListParams struct {
+}
+
+type DialogListResult struct {
+	At     Location    `json:"at"`
+	Dialog *DialogInfo `json:"dialog,omitempty"`
+}
+
+type DialogParams struct {
+	Text     string `json:"text,omitempty"`     // Answer for a prompt() dialog
+	Snapshot bool   `json:"snapshot,omitempty"` // Return a fresh interactive snapshot with the result
+}
+
+type DownloadListParams struct {
+}
+
+type DownloadListResult struct {
+	Space     string         `json:"space"`
+	Downloads []DownloadInfo `json:"downloads"`
+}
+
+type DownloadWaitParams struct {
+	ID string `json:"id,omitempty"` // Default: the most recent download
+}
+
+type DownloadWaitResult struct {
+	Space    string       `json:"space"`
+	Download DownloadInfo `json:"download"`
+}
+
 // Method names.
 const (
 	MethodGatewayHello  = "gateway.hello"
@@ -208,6 +376,23 @@ const (
 	MethodNavReload     = "nav.reload"
 	MethodPageText      = "page.text"
 	MethodPageCapture   = "page.capture"
+	MethodPageSnapshot  = "page.snapshot"
+	MethodPageClick     = "page.click"
+	MethodPageHover     = "page.hover"
+	MethodPageFill      = "page.fill"
+	MethodPageType      = "page.type"
+	MethodPagePress     = "page.press"
+	MethodPageSelect    = "page.select"
+	MethodPageCheck     = "page.check"
+	MethodPageUncheck   = "page.uncheck"
+	MethodPageScroll    = "page.scroll"
+	MethodPageUpload    = "page.upload"
+	MethodWaitFor       = "wait.for"
+	MethodDialogList    = "dialog.list"
+	MethodDialogAccept  = "dialog.accept"
+	MethodDialogDismiss = "dialog.dismiss"
+	MethodDownloadList  = "download.list"
+	MethodDownloadWait  = "download.wait"
 )
 
 // Error codes.
@@ -226,6 +411,10 @@ const (
 	ELimit          = -32014 // E_LIMIT
 	EDenied         = -32015 // E_DENIED
 	EUnsupported    = -32016 // E_UNSUPPORTED
+	ENoRef          = -32017 // E_NO_REF
+	EStaleRef       = -32018 // E_STALE_REF
+	ENotActionable  = -32019 // E_NOT_ACTIONABLE
+	EDialogOpen     = -32020 // E_DIALOG_OPEN
 )
 
 // ErrorNames maps error codes to their names.
@@ -244,4 +433,8 @@ var ErrorNames = map[int]string{
 	-32014: "E_LIMIT",
 	-32015: "E_DENIED",
 	-32016: "E_UNSUPPORTED",
+	-32017: "E_NO_REF",
+	-32018: "E_STALE_REF",
+	-32019: "E_NOT_ACTIONABLE",
+	-32020: "E_DIALOG_OPEN",
 }

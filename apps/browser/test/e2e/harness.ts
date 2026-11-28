@@ -16,6 +16,12 @@ const appDir = resolve(__dirname, "../..");
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** ELECTRON_RUN_AS_NODE (set by some tools) would start Electron as plain Node; the app must not inherit it. */
+function withoutRunAsNode(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const { ELECTRON_RUN_AS_NODE: _ignored, ...rest } = env;
+  return rest;
+}
+
 export async function waitFor<T>(what: string, fn: () => Promise<T | undefined | false> | T | undefined | false, timeoutMs = 10_000): Promise<T> {
   const end = Date.now() + timeoutMs;
   let lastErr: unknown;
@@ -102,6 +108,8 @@ export interface LaunchOptions {
   args?: string[];
   /** Wait for "[gateway] ready" before resolving (default true). */
   waitForGateway?: boolean;
+  /** Extra environment variables for the app. */
+  env?: Record<string, string>;
 }
 
 export class App {
@@ -137,7 +145,7 @@ export class App {
     const home = opts.home ?? tempDir("home");
     const profile = opts.profile ?? tempDir("profile");
     const proc = spawn(electronPath, [appDir, "--remote-debugging-port=0", ...(opts.args ?? [])], {
-      env: { ...process.env, AGB_HOME: home, AGB_PROFILE_DIR: profile, ELECTRON_ENABLE_LOGGING: "0" },
+      env: { ...withoutRunAsNode(process.env), AGB_HOME: home, AGB_PROFILE_DIR: profile, ELECTRON_ENABLE_LOGGING: "0", ...opts.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const app = new App(proc, home, profile);
@@ -183,7 +191,10 @@ export class App {
 
   /** Waits for the process to exit; returns its exit code. */
   waitExit(timeoutMs = 10_000): Promise<number | null> {
-    return Promise.race([this.exited, sleep(timeoutMs).then(() => Promise.reject(new Error("app did not exit")))]);
+    return Promise.race([
+      this.exited,
+      sleep(timeoutMs).then(() => Promise.reject(new Error(`app did not exit; its last log lines:\n${this.logs.slice(-15).join("\n")}`))),
+    ]);
   }
 
   get running(): boolean {
@@ -217,16 +228,27 @@ export async function shellTabs(shell: Cdp): Promise<ShellTab[]> {
 
 /** Closes every tab with the tabs' × buttons, which closes the window and quits the app. */
 export async function closeAllTabs(shell: Cdp): Promise<void> {
-  await shell.eval(`(async () => {
-    for (let i = 0; i < 20; i++) {
-      const b = document.querySelector('.tab-close');
-      if (!b) break;
-      b.click();
-      await new Promise(r => setTimeout(r, 150));
-    }
-  })()`).catch(() => {
-    /* the page goes away when the window closes */
-  });
+  // Right after launch the shell may not have rendered its tabs yet, and an evaluation can fail while the page
+  // settles; so wait for the tab strip, click, and check again (up to 3 rounds). If the tabs are gone but the app
+  // keeps running, waitExit still fails: that would be an app bug, not a test race.
+  for (let round = 0; round < 3; round++) {
+    await shell
+      .eval(`(async () => {
+        for (let i = 0; i < 100 && !document.querySelector('.tab-close'); i++) await new Promise(r => setTimeout(r, 50));
+        for (let i = 0; i < 20; i++) {
+          const b = document.querySelector('.tab-close');
+          if (!b) break;
+          b.click();
+          await new Promise(r => setTimeout(r, 150));
+        }
+      })()`)
+      .catch(() => {
+        /* the page goes away when the window closes */
+      });
+    await sleep(300);
+    const left = await shell.eval<boolean>("!!document.querySelector('.tab-close')").catch(() => false);
+    if (!left) return;
+  }
 }
 
 // ---------- local test site ----------

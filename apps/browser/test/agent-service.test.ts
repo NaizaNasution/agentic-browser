@@ -5,9 +5,21 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { AgentContext } from "@agb/protocol";
+import type { AgentContext, DialogInfo, DownloadInfo, WaitParams } from "@agb/protocol";
 import { AgentError } from "../src/main/agent/errors";
-import { AgentService, truncateText, type AgentDriver, type SpaceBackend, type TabBackend, type TabEvents, type TabSpec, type WaitUntil } from "../src/main/agent/service";
+import {
+  AgentService,
+  truncateText,
+  type ActionOutcome,
+  type ActionRequest,
+  type AgentDriver,
+  type SnapshotRequest,
+  type SpaceBackend,
+  type TabBackend,
+  type TabEvents,
+  type TabSpec,
+  type WaitUntil,
+} from "../src/main/agent/service";
 import { normalizeAgentUrl } from "../src/main/agent/urls";
 
 class FakeTab implements TabBackend {
@@ -66,15 +78,49 @@ class FakeTab implements TabBackend {
   close() {
     this.closed = true;
   }
+  // M2
+  dialog: DialogInfo | undefined;
+  actions: ActionRequest[] = [];
+  /** Override to control what an action does. */
+  onAct: (req: ActionRequest) => Promise<ActionOutcome> = async (req) => ({ action: req.kind, changes: ["+ alert \"Saved\" @e9"] });
+  async snapshot(req: SnapshotRequest) {
+    this.log.push(`snapshot ${req.mode ?? "interactive"}${req.scope ? " " + req.scope : ""}${req.diff ? " diff" : ""}`);
+    return { text: 'button "OK" @e1', refs: 1, tokens: 5, hiddenOmitted: 0, collapsed: 0, scroll: { y: 0, maxY: 0, viewportHeight: 800 } };
+  }
+  async act(req: ActionRequest) {
+    this.actions.push(req);
+    return this.onAct(req);
+  }
+  async waitFor(p: WaitParams) {
+    this.log.push(`wait ${JSON.stringify(p)}`);
+    return { matched: "ok" };
+  }
+  pendingDialog() {
+    return this.dialog;
+  }
 }
 
 class FakeDriver implements AgentDriver {
   tabs: FakeTab[] = [];
   disposed: string[] = [];
   createSpaceDelay = 0;
-  async createSpace(id: string): Promise<SpaceBackend> {
+  downloadDirs = new Map<string, string>();
+  async createSpace(id: string, _mode: string, agent: string): Promise<SpaceBackend> {
     if (this.createSpaceDelay) await new Promise((r) => setTimeout(r, this.createSpaceDelay));
-    return { partition: `agb-space-${id}`, dispose: async () => void this.disposed.push(id) };
+    const downloadDir = mkdtempSync(join(tmpdir(), `agb-dl-${agent}-`));
+    this.downloadDirs.set(id, downloadDir);
+    const downloads: DownloadInfo[] = [{ id: "d_1", url: "https://x/report.pdf", filename: "report.pdf", path: join(downloadDir, "report.pdf"), state: "completed", bytes: 10 }];
+    return {
+      partition: `agb-space-${id}`,
+      downloadDir,
+      downloads: () => downloads,
+      waitDownload: async (did) => {
+        const d = downloads.find((x) => !did || x.id === did);
+        if (!d) throw new AgentError("E_INVALID_PARAMS", `no download ${did}`);
+        return d;
+      },
+      dispose: async () => void this.disposed.push(id),
+    };
   }
   async createTab(spec: TabSpec, events: TabEvents): Promise<TabBackend> {
     const t = new FakeTab(spec, events);

@@ -6,3 +6,6 @@ out/
 .DS_Store
 # local test profiles
 .agb-dev-profile/
+
+# Reports written by the e2e task suite
+test-results/
